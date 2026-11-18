@@ -394,12 +394,17 @@ export function decide(state, C, nowMs) {
   // 빈 시간: 지금 들어갈 수 있는 창
   // (블록 숙제를 다 끝냈다면 남은 블록 시간도 빈 시간으로 본다)
   const w = cur ? { start: nowMs, end: cur.end } : C.unplanned.find((x) => x.start <= nowMs + MIN && x.end > nowMs);
+  // 후보: 오늘 꼭 필요 → 위험·빠듯·계획 부족(마감순) → 시간 추정 전(마감순) → 마감 지난 것
+  const rank = (j) =>
+    j.mustToday >= 5 ? 0 : ['risk', 'tight', 'plan'].includes(j.status) ? 1 : j.status === 'unknown' ? 2 : 3;
   const cands = (state.tasks ?? [])
     .filter((t) => {
       const j = J(t.id);
-      return ['overdue', 'risk', 'tight', 'plan'].includes(j.status) && (j.leftover?.exp ?? 0) >= 5;
+      if (t.kind === 'errand') return false;
+      if (['risk', 'tight', 'plan'].includes(j.status)) return (j.leftover?.exp ?? 0) >= 5;
+      return j.status === 'unknown' || j.status === 'overdue';
     })
-    .sort((a, b) => (J(b.id).mustToday >= 5) - (J(a.id).mustToday >= 5) || C.order(a, b));
+    .sort((a, b) => rank(J(a.id)) - rank(J(b.id)) || C.order(a, b));
   if (w && cands.length) {
     const t = cands[0];
     const j = J(t.id);
@@ -408,7 +413,9 @@ export function decide(state, C, nowMs) {
       type: 'gap',
       eyebrow: 'GAP · 빈 시간',
       title: `빈 시간에 ‘${t.title}’`,
-      message: `${fmtTime(w.end)}까지 ${fmtDur(Math.floor(gapMin))} 비어 있어요 · ${j.note ?? dueTxt(j)}`,
+      message: `${fmtTime(w.end)}까지 ${fmtDur(Math.floor(gapMin))} 비어 있어요 · ${
+        j.status === 'unknown' ? `${dueTxt(j)} · 분량을 몰라 시간은 시작해 보고 잴게요` : j.note ?? dueTxt(j)
+      }`,
       taskId: t.id,
       gapMin,
       gapEnd: w.end,
@@ -429,7 +436,11 @@ export function decide(state, C, nowMs) {
     type: 'clear',
     eyebrow: 'ALL CLEAR',
     title: '오늘 할 일 끝',
-    message: C.mode === 'normal' ? '마감 위험 없음 · 남은 시간은 복습이나 휴식에 써도 돼요' : '오늘 쓸 수 있는 빈 시간이 없어요',
+    message: !w
+      ? '오늘 쓸 수 있는 빈 시간이 없어요'
+      : C.mode === 'normal'
+        ? '마감 위험 없음 · 남은 시간은 복습이나 휴식에 써도 돼요'
+        : '남은 숙제는 다른 날 빈 시간에 들어가 있어요',
     blockId: null,
   };
 }

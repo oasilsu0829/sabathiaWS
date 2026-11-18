@@ -4,6 +4,7 @@
 //   measured : 이 숙제를 직접 푼 기록 (2단위 이상, 2분 이상) — 기본 페이스와 섞어 급격한 변동을 줄임
 //   prior    : 사용자가 적어 둔 1단위당 예상 시간
 //   group    : 같은 학원·같은 단위(예: 백인대장 '문제')를 푼 기록
+//   default  : 학원·단위별 임시 페이스 (설정값, 범위 넓게)
 //   plan     : 페이스가 없으면 플래너에 잡아 둔 시간을 그대로 믿음
 //   none     : 판단 불가 → 위험 계산에서 빼고 "진행 후 추정"으로 표시
 
@@ -29,7 +30,9 @@ export function paceOf(task, state) {
   const own = tally(sessions, (s) => s.taskId === task.id);
   const prior = Number(task.pace) > 0 ? Number(task.pace) : null;
   if (own) {
-    const pace = prior ? (own.pace * own.n + prior * PRIOR_WEIGHT) / (own.n + PRIOR_WEIGHT) : own.pace;
+    const base = prior ?? defaultPace(task, state);
+    const w = prior ? PRIOR_WEIGHT : 1; // 임시 페이스는 덜 믿는다
+    const pace = base ? (own.pace * own.n + base * w) / (own.n + w) : own.pace;
     const k = Math.sqrt(own.n);
     return { pace, source: 'measured', n: own.n, lo: 1 - Math.max(0.1, 0.3 / k), hi: 1 + Math.max(0.15, 0.6 / k) };
   }
@@ -39,7 +42,16 @@ export function paceOf(task, state) {
   );
   const grp = tally(sessions, (s) => sameUnit.has(s.taskId));
   if (grp) return { pace: grp.pace, source: 'group', n: grp.n, lo: 0.8, hi: 1.5 };
+  const dflt = defaultPace(task, state);
+  if (dflt) return { pace: dflt, source: 'default', n: 0, lo: 0.6, hi: 1.8 };
   return null;
+}
+
+/** 학원·단위별 임시 페이스 (groups[].paces). 기록이 생기면 기록으로 대체된다. */
+function defaultPace(task, state) {
+  const g = (state.groups ?? []).find((x) => x.id === task.g);
+  const v = Number(g?.paces?.[task.unit]);
+  return v > 0 ? v : null;
 }
 
 /**
