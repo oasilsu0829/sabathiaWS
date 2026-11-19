@@ -1,5 +1,5 @@
 // 오프라인 우선 서비스 워커. 앱 셸을 캐시하고, 새 버전은 백그라운드에서 갱신한다.
-const VERSION = 'sabathia-v1.0.1';
+const VERSION = 'sabathia-v1.0.2';
 const SHELL = [
   './',
   './index.html',
@@ -39,20 +39,18 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// stale-while-revalidate: 캐시를 바로 보여주고 네트워크로 갱신
+// 네트워크 먼저(2026-11-19): 새 버전이 바로 보이게. 오프라인일 때만 캐시
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    caches.open(VERSION).then(async (cache) => {
-      const cached = await cache.match(req, { ignoreSearch: req.mode === 'navigate' });
-      const network = fetch(req)
+    caches.open(VERSION).then((cache) =>
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           if (res.ok) cache.put(req, res.clone());
           return res;
         })
-        .catch(() => cached);
-      return cached ?? network;
-    }),
+        .catch(async () => (await cache.match(req, { ignoreSearch: req.mode === 'navigate' })) ?? Response.error()),
+    ),
   );
 });
