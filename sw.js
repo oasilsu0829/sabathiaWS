@@ -1,5 +1,5 @@
 // 오프라인 우선 서비스 워커. 앱 셸을 캐시하고, 새 버전은 백그라운드에서 갱신한다.
-const VERSION = 'sabathia-v1.0.1';
+const VERSION = 'sabathia-v1.0.2';
 const SHELL = [
   './',
   './index.html',
