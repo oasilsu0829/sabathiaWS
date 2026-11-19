@@ -1,5 +1,5 @@
 import { mountCity } from './city.js';
-import { loadSrc, saveSrc, loadLive, applyLive, DEFAULT_BASE, ID_RE } from './live.js';
+import { loadSrc, saveSrc, loadLive, applyLive, sendEvent, DEFAULT_BASE, ID_RE } from './live.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
 import { isDone } from './engine/estimate.js';
@@ -613,6 +613,7 @@ document.addEventListener('click', (e) => {
     case 'selblock': selectBlock(a.dataset.id); break;
     case 'follow': S.selBlock = null; render(); break;
     case 'opentask': {
+      if (canEdit() && !a.dataset.now) { openEv(a.dataset.id); break; }
       const b = blockOfTask(a.dataset.id), j = J(a.dataset.id);
       if (b) { selectBlock(b.id, a.dataset.id); if (!st.running) toast(`NOW에 ‘${b.title}’ 블록을 표시했어요`); }
       else if (j.firstSlot) toast(`아직 블록이 없는 숙제예요 · ${fmtTime(j.firstSlot.start)} 빈 시간에 넣을 수 있어요`);
@@ -715,6 +716,7 @@ fit(); applyLayout(); render();
 let src = loadSrc();
 let liveInfo = null;
 function paintConn() {
+  document.getElementById('dlAdd').hidden = !canEdit();
   const b = document.getElementById('connBtn');
   const live = !!src && st.source === 'live';
   b.classList.toggle('live', live);
@@ -728,14 +730,17 @@ function paintConn() {
   el.textContent = (parts.length ? parts.join(' · ') + ' 읽음' : '') + (liveInfo.errors.length ? (parts.length ? ' — ' : '') + liveInfo.errors.join(' / ') : '');
 }
 let liveBusy = false;
+const liveRaw = new Map();
 async function refreshLive(manual) {
   if (!src || liveBusy) return;
   liveBusy = true;
   try {
     const today = logicalDay(settingsOf(st), nowMs()).date;
-    const { part, ok, info } = await loadLive(src, today);
+    const res = await loadLive(src, today);
+    const { part, ok, info } = res;
     liveInfo = info;
     if (ok) { applyLive(st, part); save(); render(); }
+    if (info.events != null) { liveRaw.clear(); for (const e of res.raw) liveRaw.set(e.id, e); }
     if (manual) toast(ok ? `실제 데이터로 바꿨어요 · 숙제 ${part.tasks.length}개 · 블록 ${part.blocks.length}개` : info.errors.join(' / '));
     else if (info.errors.length && !ok) toast(info.errors.join(' / '));
   } finally { liveBusy = false; paintConn(); }
@@ -764,7 +769,53 @@ dlg.addEventListener('close', async () => {
   saveSrc(src); paintConn();
   await refreshLive(true);
 });
-document.addEventListener('click', (e) => { if (e.target.closest('[data-act="conn"]')) openConn(); });
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-act="conn"]')) openConn();
+  if (e.target.closest('[data-act="evadd"]')) openEv(null);
+});
+
+// ---------- 마감 고치기 (Sabathia 일정 API로 바로 저장) ----------
+function canEdit() { return !!src && st.source === 'live' && liveRaw.size > 0; }
+const evDlg = document.getElementById('evDlg');
+let evId = null;
+function openEv(taskId) {
+  const f = evDlg.querySelector('form');
+  evId = taskId && taskId.startsWith('ev:') ? taskId.slice(3) : null;
+  const e = evId ? liveRaw.get(evId) : null;
+  if (taskId && !e) { toast('일정 앱에서 온 숙제가 아니라 여기서 고칠 수 없어요'); return; }
+  const today = logicalDay(settingsOf(st), nowMs()).date;
+  document.getElementById('evH').textContent = e ? '마감 고치기' : '마감 추가';
+  f.title.value = e?.title ?? '';
+  f.date.value = e?.date ?? today;
+  f.time.value = e?.time ?? '';
+  f.kind.value = e?.kind === 'task' ? 'task' : 'deadline';
+  f.cat.value = ['academy', 'school', 'report'].includes(e?.cat) ? e.cat : e ? '' : 'academy';
+  f.note.value = e?.note ?? '';
+  f.done.checked = !!e?.done;
+  document.getElementById('evDel').hidden = !e;
+  document.getElementById('evNow').hidden = !e;
+  evDlg.dataset.task = taskId || '';
+  evDlg.showModal();
+}
+evDlg.addEventListener('close', async () => {
+  const v = evDlg.returnValue, f = evDlg.querySelector('form');
+  if (v === 'now') { const b = document.createElement('button'); b.dataset.act = 'opentask'; b.dataset.id = evDlg.dataset.task; b.dataset.now = '1'; document.body.append(b); b.click(); b.remove(); return; }
+  if (v !== 'save' && v !== 'del') return;
+  try {
+    if (v === 'del') {
+      if (!confirm(`‘${f.title.value}’을(를) 일정에서 지울까요?`)) return;
+      await sendEvent(src, 'DELETE', evId);
+      toast('지웠어요');
+    } else {
+      const body = { title: f.title.value.trim(), date: f.date.value, time: f.time.value || null, kind: f.kind.value, cat: f.cat.value, note: f.note.value.trim(), done: f.done.checked };
+      if (!body.title || !body.date) { toast('제목과 날짜를 넣어 주세요'); return; }
+      if (evId) await sendEvent(src, 'PATCH', evId, body);
+      else await sendEvent(src, 'POST', null, { ...body, source: 'ws' });
+      toast(evId ? '저장했어요 · 일정 앱에도 반영됨' : '추가했어요 · 일정 앱에도 반영됨');
+    }
+    await refreshLive(false);
+  } catch (err) { toast(err.message); }
+});
 paintConn();
 refreshLive(false);
 setInterval(() => refreshLive(false), 5 * 60_000);

@@ -87,6 +87,7 @@ tests/               §11 완료 기준 테스트
 - `?now=2026-11-18T18:58` 시각 고정 · `?reset` 샘플 다시 불러오기
 - 데이터는 이 기기 브라우저(localStorage `sabathia.ws.v1`)에만 저장
 - 실제 데이터: 위쪽 '샘플 데이터' 버튼 → Sabathia 주소(기본 `sabathia.oasilsu0829.workers.dev`)·토큰(설정했을 때만)·15577 온라인 저장 ID. 일정은 `/api/events`, 블록은 Firestore `planners/{ID}`에서 읽기만 한다(`ws/live.js`). 연결 정보는 이 기기 `sabathia.ws.src`에만, 저장소에는 개인 데이터를 넣지 않는다. 열 때·5분마다·화면으로 돌아올 때 다시 읽고, 숙제 진행(타이머로 센 분량)은 큰 쪽을 남긴다
+- 마감 고치기: 실제 데이터를 연결하면 DEADLINES 줄을 눌러 제목·날짜·마감 시각·종류·묶음·메모·완료를 고치거나 지울 수 있고, '+ 추가'로 새 마감을 넣는다. Sabathia 일정 API(PATCH·POST·DELETE)로 바로 저장되어 일정 앱에도 반영된다. 일정 앱에서 온 숙제만 고칠 수 있다(15577 블록은 15577에서)
 - 첫 화면: 창 네 개는 닫혀 있고 '지금 할 일'만 크게. 코로나 일정 시계는 첫 화면에서 뺐고 `ws/corona.html`에서 따로 볼 수 있음
 - 배경: Unsplash 사진 한 장(`ws/bg.webp`, Photo by ran liwen on Unsplash). 주소 끝 `#city`면 같은 도시를 2시간마다 찍은 사진 12장(`ws/city.js`), `#city=14`로 시각 미리보기
 

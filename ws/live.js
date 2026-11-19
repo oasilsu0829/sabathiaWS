@@ -37,9 +37,25 @@ export function eventsToRecords(events) {
     }));
 }
 
+const apiBase = (base) => String(base || DEFAULT_BASE).replace(/\/+$/, '') + '/api/events';
+const authH = (token) => (token ? { Authorization: 'Bearer ' + token } : {});
+
+/** 일정 하나 고치기·추가·지우기. method: PATCH(id) · POST · DELETE(id) */
+export async function sendEvent(src, method, id, body) {
+  const url = apiBase(src.base) + (id ? '/' + encodeURIComponent(id) : '');
+  const r = await fetch(url, {
+    method,
+    headers: { ...authH(src.token), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Error('토큰이 맞지 않아요 · 연결 화면에서 토큰을 넣어 주세요');
+  if (!r.ok) throw new Error(d.error || '저장 실패 ' + r.status);
+  return d;
+}
+
 export async function fetchEvents(base, token) {
-  const url = String(base || DEFAULT_BASE).replace(/\/+$/, '') + '/api/events';
-  const r = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {}, cache: 'no-store' });
+  const r = await fetch(apiBase(base), { headers: authH(token), cache: 'no-store' });
   if (r.status === 401) throw new Error('토큰이 필요해요');
   if (!r.ok) throw new Error('일정 ' + r.status);
   const d = await r.json();
@@ -130,9 +146,10 @@ export async function loadLive(src, today) {
   let records = [];
   let plan = null;
   let nEvents = null;
+  let raw = [];
   await Promise.all([
     (async () => {
-      try { const ev = await fetchEvents(src.base, src.token); records = eventsToRecords(ev); nEvents = ev.length; }
+      try { const ev = await fetchEvents(src.base, src.token); raw = ev; records = eventsToRecords(ev); nEvents = ev.length; }
       catch (e) { errors.push('일정: ' + e.message); }
     })(),
     (async () => {
@@ -153,7 +170,7 @@ export async function loadLive(src, today) {
     events: sheet.events,
     blocks: p.blocks,
   };
-  return { part, ok: nEvents != null || plan != null, info: { events: nEvents, blocks: plan ? p.blocks.length : null, errors } };
+  return { part, raw, ok: nEvents != null || plan != null, info: { events: nEvents, blocks: plan ? p.blocks.length : null, errors } };
 }
 
 /** 예전 상태(진행 기록)를 살려서 새 조각을 덮는다. 같은 숙제(id·분량 단위 같음)의 진행은 큰 쪽을 쓴다 */
