@@ -56,6 +56,7 @@ src/store.js         상태 + localStorage
 src/ui/              홈 · 플래너 · 일정 · 설정 · 시트
 src/app.js           앱 셸 (간결/창형 배치)
 sw.js                오프라인 캐시
+ws/                  WS 창 화면. ws/must.js = '안하면 병신' 창(오늘 꼭 할 일, 닫기 전 확인·나갈 때 알림), ws/notify-sw.js = 그 알림용 서비스 워커
 tests/               §11 완료 기준 테스트
 ```
 
