@@ -1,4 +1,5 @@
 import { mountCity } from './city.js';
+import { loadSrc, saveSrc, loadLive, applyLive, DEFAULT_BASE, ID_RE } from './live.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
 import { isDone } from './engine/estimate.js';
@@ -708,4 +709,64 @@ function fit() {
 let fitT;
 window.addEventListener('resize', () => { clearTimeout(fitT); fitT = setTimeout(() => { fit(); applyLayout(); }, 80); });
 fit(); applyLayout(); render();
+
+// ---------- 실제 데이터 (Sabathia 일정 + 15577) ----------
+// 연결하지 않은 기기는 샘플로 동작. 연결하면 열 때·5분마다·화면으로 돌아올 때 다시 읽는다
+let src = loadSrc();
+let liveInfo = null;
+function paintConn() {
+  const b = document.getElementById('connBtn');
+  const live = !!src && st.source === 'live';
+  b.classList.toggle('live', live);
+  b.textContent = !src ? '샘플 데이터' : live ? '실제 데이터' : '연결 중…';
+  const el = document.getElementById('connSt');
+  if (!el) return;
+  if (!liveInfo) { el.textContent = src ? '' : '지금은 샘플 데이터예요.'; return; }
+  const parts = [];
+  if (liveInfo.events != null) parts.push(`일정 ${liveInfo.events}개`);
+  if (liveInfo.blocks != null) parts.push(`15577 블록 ${liveInfo.blocks}개`);
+  el.textContent = (parts.length ? parts.join(' · ') + ' 읽음' : '') + (liveInfo.errors.length ? (parts.length ? ' — ' : '') + liveInfo.errors.join(' / ') : '');
+}
+let liveBusy = false;
+async function refreshLive(manual) {
+  if (!src || liveBusy) return;
+  liveBusy = true;
+  try {
+    const today = logicalDay(settingsOf(st), nowMs()).date;
+    const { part, ok, info } = await loadLive(src, today);
+    liveInfo = info;
+    if (ok) { applyLive(st, part); save(); render(); }
+    if (manual) toast(ok ? `실제 데이터로 바꿨어요 · 숙제 ${part.tasks.length}개 · 블록 ${part.blocks.length}개` : info.errors.join(' / '));
+    else if (info.errors.length && !ok) toast(info.errors.join(' / '));
+  } finally { liveBusy = false; paintConn(); }
+}
+const dlg = document.getElementById('conn');
+function openConn() {
+  const f = dlg.querySelector('form');
+  f.base.value = src?.base || DEFAULT_BASE;
+  f.token.value = src?.token || '';
+  f.planId.value = src?.planId || '';
+  paintConn();
+  dlg.showModal();
+}
+dlg.addEventListener('close', async () => {
+  const f = dlg.querySelector('form');
+  if (dlg.returnValue === 'off') {
+    src = null; liveInfo = null; saveSrc(null);
+    if (st.source === 'live') { Object.assign(st, sampleState(logicalDay(settingsOf({}), nowMs()).date)); delete st.source; save(); render(); }
+    paintConn(); toast('연결을 끊고 샘플로 돌아왔어요');
+    return;
+  }
+  if (dlg.returnValue !== 'ok') return;
+  const planId = f.planId.value.trim().toLowerCase();
+  if (planId && !ID_RE.test(planId)) { toast('15577 ID는 영어 소문자·숫자·-·_ 3~24자예요'); return; }
+  src = { base: f.base.value.trim() || DEFAULT_BASE, token: f.token.value.trim(), planId };
+  saveSrc(src); paintConn();
+  await refreshLive(true);
+});
+document.addEventListener('click', (e) => { if (e.target.closest('[data-act="conn"]')) openConn(); });
+paintConn();
+refreshLive(false);
+setInterval(() => refreshLive(false), 5 * 60_000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(false); });
 document.fonts && document.fonts.ready.then(applyLayout);
