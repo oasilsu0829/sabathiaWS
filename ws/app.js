@@ -1,11 +1,12 @@
 import { mountCity } from './city.js';
-import { loadSrc, saveSrc, loadLive, applyLive, sendEvent, DEFAULT_BASE, ID_RE } from './live.js';
+import { loadSrc, saveSrc, loadEvents, combine, applyLive, sendEvent, DEFAULT_BASE, ID_RE } from './live.js';
+import * as PL from './planner.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
 import { isDone } from './engine/estimate.js';
 import { sampleState } from './sample.js';
 import { logicalDay } from '../src/engine/capacity.js';
-import { fmtDur, fmtTime, weekdayLabel, weekdayOf, roundTo } from '../src/engine/time.js';
+import { fmtDur, fmtTime, weekdayLabel, weekdayOf, roundTo, addDays } from '../src/engine/time.js';
 
 // ---------- Icons ----------
 const P = {
@@ -48,6 +49,15 @@ function load() {
   return sampleState(logicalDay(settingsOf({}), nowMs()).date);
 }
 const st = load();
+// 실제 데이터 연결 상태 (아래 '실제 데이터' 절에서 씀). 첫 render 전에 선언해 둔다
+// 기본은 Sabathia 일정에 바로 연결(사용자 결정: 공개돼도 됨). '연결 끊기'를 누른 기기만 샘플
+let src = loadSrc();
+if (!src) src = { base: DEFAULT_BASE, token: '', planId: '' };
+if (src.off) src = null;
+let liveInfo = null;
+let PLAN = PL.loadLocal();   // 15577 기록 (planner.js)
+let SHEET = null;            // 마지막으로 읽은 Sabathia 일정 → 시트 상태
+let seeded = false;          // 이번에 ws/data/15577.json 과 비교했는지
 st.sessions ??= [];
 function save() {
   try {
@@ -473,6 +483,7 @@ function renderDl() {
 
 // ---------- PLANNER ----------
 function renderPl() {
+  if (src && PLAN && st.source === 'live') return renderPlEdit();
   const n = R.now;
   const first = R.todayBlocks[0];
   const from = first ? Math.min(first.start, n) : n;
@@ -522,6 +533,150 @@ function renderPl() {
     </div></div>`;
   }
   document.getElementById('b-pl').innerHTML = `<div class="pl-wrap"><div class="pl-list">${rows.join('')}</div>${detail}</div>`;
+}
+
+// ---------- PLANNER 편집 (15577 방식) ----------
+// 15577 기록을 그날 화면으로 그린다: 고정 일정(수업·학원·식사)과 블록을 15577 layout 자리에, 오늘은 빈 시간과 엔진 추천도.
+// 블록을 누르면 편집 시트, 오른쪽 동그라미는 완료/취소, '+ 블록'은 15577처럼 마지막 블록 뒤(오늘은 지금 이후)에 넣는다.
+const minOf = (ms) => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
+function renderPlEdit() {
+  const P = PLAN, today = R.today, k = S.plDay ?? today, nowM = minOf(R.now);
+  const { m, d, w } = dateLabel(k);
+  const prog = PL.dayProg(P, k), stMap = PL.statusOf(P, k, today, nowM);
+  const lay = PL.layout(P, k);
+  const fx = PL.fixedFor(P, k).filter((x) => !x.self);
+  const items = [
+    ...fx.map((x) => ({ s: x.s, e: x.s + x.d, fixed: x })),
+    ...lay.map((a) => ({ s: a.s, e: a.s + a.d, a })),
+  ];
+  if (k === today) for (const g of R.unplanned) if (g.start < R.todayEnd) items.push({ s: minOf(g.start), e: minOf(g.end), gap: g });
+  items.sort((x, y) => x.s - y.s || (x.fixed ? -1 : 0) - (y.fixed ? -1 : 0));
+  const D = R.decision;
+  const rows = items.map((it) => {
+    if (it.fixed) {
+      const f = it.fixed.f, lbl = f.school ? `${f.period}교시 ${f.title}` : f.title;
+      return `<div class="pl-row fixed small" style="--c:var(--ink4)"><span class="pl-time num">${PL.hm(it.s)}</span><span class="pl-rail"><i></i></span><span class="pl-card"><span class="pl-title">${esc(lbl)} · ${dur(it.e - it.s)}</span></span></div>`;
+    }
+    if (it.gap) {
+      const t = D.type === 'gap' && D.gapEnd === it.gap.end ? T(D.taskId) : null;
+      return `<button class="pl-row gap small" data-act="pladd" data-start="${it.s}" data-title="${esc(t ? t.title : '')}" style="--c:var(--ink4)"><span class="pl-time num">${PL.hm(it.s)}</span><span class="pl-rail"><i></i></span><span class="pl-card"><span class="pl-title">${ic('plus', 13)}빈 시간 ${dur(it.e - it.s)}${t ? ` → <b>${esc(t.title)}</b>` : ' · 블록 넣기'}</span></span></button>`;
+    }
+    const b = it.a.b, c = PL.catOf(P, b.cat), stt = stMap.get(b.id), len = it.e - it.s;
+    const wsb = blk('p:' + b.id), ts = (wsb?.tasks ?? []).map(T).filter(Boolean);
+    const cls = { done: 'done', late: 'late', next: 'next', run: 'now', wait: 'wait' }[stt];
+    const amt = !PL.isLite(b) && b.units ? ` · ${b.units}${esc(b.unit || '')}` : '';
+    const sub = `${esc(c.name)} · ${PL.KIND_LABEL[PL.kindOf(b)]}${amt} · 예상 ${dur(b.est || b.dur)}${b.done && b.actual ? ` → 실제 ${dur(b.actual)}` : ''}${ts.length ? ' · ' + esc(ts.map((t) => t.title).join(', ')) : ''}`;
+    return `<div class="pl-row ed st-${cls}" style="--c:${c.color || 'var(--ink3)'};--h:${Math.max(60, len * 1.2)}px">
+      <span class="pl-time num">${PL.hm(it.s)}<small>${PL.hm(it.e)}</small></span><span class="pl-rail"><i></i></span>
+      <span class="pl-card"><button class="pl-body" data-act="pledit" data-id="${b.id}"><span class="pl-title">${esc(b.title)}<span class="pill st-${stt}">${PL.ST_LABEL[stt]}</span></span><span class="pl-sub">${sub}</span></button>
+      <button class="pl-chk" data-act="plcheck" data-id="${b.id}" aria-pressed="${!!b.done}" aria-label="${esc(b.title)} ${b.done ? '완료 취소' : '완료'}">${ic('check', 14)}</button></span>
+    </div>`;
+  });
+  if (!lay.length) rows.push(`<p class="empty-hero" style="margin:12px 0">이 날 블록이 없어요. ‘+ 블록’으로 넣어 보세요.</p>`);
+  const bar = `<div class="pl-bar">
+    <button class="pl-nav" data-act="plday" data-d="-1" aria-label="전날">‹</button>
+    <b class="pl-date num">${m}/${d} (${w})</b>
+    <button class="pl-nav" data-act="plday" data-d="1" aria-label="다음 날">›</button>
+    ${k !== today ? '<button class="pl-today" data-act="plday" data-d="0">오늘</button>' : ''}
+    <span class="pl-prog num">${prog.doneN}/${prog.n} · ${Math.round(prog.pct)}%</span>
+    <button class="pl-add" data-act="pladd">+ 블록</button>
+  </div>`;
+  // 오른쪽: 오늘은 엔진이 본 지금(또는 고른) 블록, 다른 날은 그날 요약
+  let detail = '';
+  const sb = k === today ? (blk(S.selBlock ?? nowView().id) ?? R.todayBlocks.find((x) => x.end > R.now)) : null;
+  if (sb) {
+    const a = R.alloc.get(sb.id);
+    const am = (id) => a?.alloc.find((x) => x.taskId === id)?.min ?? 0;
+    detail = `<div class="pl-detail"><div class="pl-detail-card" style="--c:${sb.color}">
+      <div class="pd-k">NOW · 엔진 배정</div><div class="pd-t">${esc(sb.title)}</div>
+      <div class="pd-m num">${fmtTime(sb.start)}–${fmtTime(sb.end)} · ${dur((sb.end - sb.start) / MINMS)}</div>
+      <div class="sec-label"><span class="kr">연결된 숙제</span><span>[${String(sb.tasks.length).padStart(2, '0')}]</span></div>
+      ${sb.tasks.map(T).filter(Boolean).map((t) => { const e = estView(t), j = J(t.id); return `<div class="pd-task"><span class="t">${esc(t.title)}</span><span class="a"><span>${a && sb.end > R.now ? `배정 ${dur(am(t.id))}` : '지난 블록'}</span><span>필요 ${esc(e.main)}</span></span><span class="c"><span class="num">${t.done} / ${t.total}${esc(t.unit)}</span><span>${ddayTxt(j.dday)}</span></span></div>`; }).join('') || '<div class="pd-slack">제목이 겹치거나 같은 과목인 숙제가 없어요</div>'}
+    </div></div>`;
+  } else {
+    const tot = lay.reduce((n, a) => n + (a.b.est || a.b.dur), 0);
+    detail = `<div class="pl-detail"><div class="pl-detail-card"><div class="pd-k">${m}/${d} (${w})</div><div class="pd-t">블록 ${lay.length}개</div><div class="pd-m num">예상 합계 ${dur(tot)} · 완료 ${prog.doneN}개</div>${PLAN.dday?.date ? `<div class="pd-slack">${esc(PLAN.dday.title || 'D-day')} ${ddayTxt(daysBetweenK(today, PLAN.dday.date))}</div>` : ''}</div></div>`;
+  }
+  document.getElementById('b-pl').innerHTML = `${bar}<div class="pl-wrap"><div class="pl-list">${rows.join('')}</div>${detail}</div>`;
+  document.getElementById('plSub').textContent = `${m}/${d} (${w}) 15577`;
+}
+const daysBetweenK = (a, b) => Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 86_400_000);
+
+// 편집 시트
+const plDlg = document.getElementById('plDlg');
+let plEditId = null;
+function plHint() {
+  const f = plDlg.querySelector('form'), kind = f.kind.value;
+  document.getElementById('plAmt').hidden = kind !== 'solve';
+  document.getElementById('plActW').hidden = !f.done.checked;
+  const sg = PL.suggest(PLAN, f.cat.value, kind === 'solve' ? +f.units.value || 0 : 0, f.unit.value);
+  document.getElementById('plHint').textContent = sg ? `기록으로 본 예상: ${sg.min}분 (${sg.why})` : `${PL.catOf(PLAN, f.cat.value).name} 기록이 아직 없어요. 끝나면 실제 시간을 남기면 다음 예상에 써요.`;
+  return sg;
+}
+function openPl(id, preset = {}) {
+  const f = plDlg.querySelector('form'), k = S.plDay ?? R.today;
+  const b = id ? PL.findB(PLAN, id).b : null;
+  if (id && !b) return;
+  plEditId = id || null;
+  document.getElementById('plH').textContent = b ? '블록 고치기' : '블록 추가';
+  document.getElementById('plCats').innerHTML = PLAN.cats.map((c) => `<label class="chip" style="--c:${c.color}"><input type="radio" name="cat" value="${esc(c.id)}"><span>${esc(c.name)}</span></label>`).join('');
+  const cat = b?.cat ?? (PLAN.cats.some((c) => c.id === PLAN.lastCat) ? PLAN.lastCat : PLAN.cats[0].id);
+  f.querySelector(`input[name=cat][value="${CSS.escape(cat)}"]`).checked = true;
+  f.kind.value = b ? PL.kindOf(b) : 'solve';
+  f.title.value = b?.title ?? preset.title ?? '';
+  f.units.value = b?.units || '';
+  f.unit.value = b?.unit || '문제';
+  f.est.value = b ? (b.est || b.dur) : 30;
+  f.start.value = PL.hm(b ? (PL.layout(PLAN, PL.findB(PLAN, id).k).find((a) => a.b.id === id)?.s ?? b.start) : preset.start ?? PL.placeStart(PLAN, k, R.today, minOf(R.now)));
+  f.done.checked = !!b?.done;
+  f.actual.value = b?.actual || '';
+  f.dataset.estTouched = b ? '1' : '';
+  document.getElementById('plDel').hidden = !b;
+  document.getElementById('plNow').hidden = !b || PL.findB(PLAN, id).k !== R.today;
+  const sg = plHint();
+  if (!b && sg) f.est.value = sg.min;
+  plDlg.showModal();
+}
+plDlg.addEventListener('input', (e) => {
+  const f = plDlg.querySelector('form');
+  if (e.target.name === 'est') f.dataset.estTouched = '1';
+  const sg = plHint();
+  if (!f.dataset.estTouched && sg && ['cat', 'units', 'unit', 'kind'].includes(e.target.name)) f.est.value = sg.min;
+});
+plDlg.addEventListener('close', () => {
+  const v = plDlg.returnValue, f = plDlg.querySelector('form'), k = S.plDay ?? R.today;
+  if (v === 'now') { selectBlock('p:' + plEditId); return; }
+  if (v === 'del') {
+    const b = PL.findB(PLAN, plEditId).b;
+    if (b && confirm(`‘${b.title}’ 블록을 지울까요?`)) { PL.removeBlock(PLAN, plEditId); planChanged('지웠어요'); }
+    return;
+  }
+  if (v !== 'save') return;
+  const d = { title: f.title.value, cat: f.cat.value, kind: f.kind.value, units: +f.units.value || 0, unit: f.unit.value.trim() || '문제', est: Math.max(5, +f.est.value || 30), start: PL.parseHM(f.start.value), actual: +f.actual.value || null };
+  if (plEditId) {
+    const was = PL.findB(PLAN, plEditId).b?.done;
+    PL.updateBlock(PLAN, plEditId, d);
+    if (f.done.checked && !was) PL.complete(PLAN, plEditId, d.actual ?? d.est);
+    else if (!f.done.checked && was) PL.undone(PLAN, plEditId);
+    planChanged('저장했어요');
+  } else {
+    const b = PL.addBlock(PLAN, k, d, R.today);
+    if (f.done.checked) PL.complete(PLAN, b.id, d.actual ?? d.est);
+    planChanged(`‘${b.title}’ ${PL.hm(b.start)}에 넣었어요`);
+  }
+});
+function plAction(a) {
+  const act = a.dataset.act;
+  if (act === 'plday') { const k = S.plDay ?? R.today; S.plDay = +a.dataset.d === 0 ? null : addDays(k, +a.dataset.d); if (S.plDay === R.today) S.plDay = null; renderPl(); flush(); return true; }
+  if (act === 'pladd') { openPl(null, { start: a.dataset.start != null ? +a.dataset.start : undefined, title: a.dataset.title || '' }); return true; }
+  if (act === 'pledit') { openPl(a.dataset.id); return true; }
+  if (act === 'plcheck') {
+    const b = PL.findB(PLAN, a.dataset.id).b; if (!b) return true;
+    if (b.done) { PL.undone(PLAN, b.id); planChanged('완료를 취소했어요'); }
+    else { PL.complete(PLAN, b.id, b.est || b.dur); planChanged(`${b.title} 완료 · 실제 시간은 눌러서 고칠 수 있어요`); }
+    return true;
+  }
+  return false;
 }
 
 // ---------- Dock ----------
@@ -591,6 +746,7 @@ function startTask(block, task) {
 document.addEventListener('click', (e) => {
   const a = e.target.closest('[data-act]'); if (!a) return;
   const act = a.dataset.act, w = a.closest('.win'), wid = w && w.dataset.id;
+  if (/^pl(day|add|edit|check)$/.test(act) && PLAN && src && plAction(a)) return;
   switch (act) {
     case 'mode': if (a.dataset.mode === 'free') toFree(); else { S.mode = 'organized'; applyLayout(); } break;
     case 'reset': S.free = freeDefault(); S.collapsed = {}; S.closed = {}; applyLayout(); break;
@@ -713,8 +869,8 @@ fit(); applyLayout(); render();
 
 // ---------- 실제 데이터 (Sabathia 일정 + 15577) ----------
 // 연결하지 않은 기기는 샘플로 동작. 연결하면 열 때·5분마다·화면으로 돌아올 때 다시 읽는다
-let src = loadSrc();
-let liveInfo = null;
+// 기본은 Sabathia 일정에 바로 연결(사용자 결정: 공개돼도 됨). '연결 끊기'를 누른 기기만 샘플
+const todayKey = () => logicalDay(settingsOf(st), nowMs()).date;
 function paintConn() {
   document.getElementById('dlAdd').hidden = !canEdit();
   const b = document.getElementById('connBtn');
@@ -729,21 +885,58 @@ function paintConn() {
   if (liveInfo.blocks != null) parts.push(`15577 블록 ${liveInfo.blocks}개`);
   el.textContent = (parts.length ? parts.join(' · ') + ' 읽음' : '') + (liveInfo.errors.length ? (parts.length ? ' — ' : '') + liveInfo.errors.join(' / ') : '');
 }
+// 일정이 아직 없을 때(오프라인 등)는 지금 상태에서 15577 몫을 뺀 것을 시트로 쓴다
+const sheetOf = () => SHEET ?? { fixed: (st.fixed || []).filter((f) => !f.from15577), tasks: st.tasks || [], groups: st.groups || [], events: st.events || [] };
+function rebuild() {
+  if (!src || !PLAN) return;
+  const part = combine(sheetOf(), PLAN, todayKey());
+  applyLive(st, part); save(); render(); paintConn();
+}
 let liveBusy = false;
 const liveRaw = new Map();
 async function refreshLive(manual) {
   if (!src || liveBusy) return;
   liveBusy = true;
+  const errors = [];
   try {
-    const today = logicalDay(settingsOf(st), nowMs()).date;
-    const res = await loadLive(src, today);
-    const { part, ok, info } = res;
-    liveInfo = info;
-    if (ok) { applyLive(st, part); save(); render(); }
-    if (info.events != null) { liveRaw.clear(); for (const e of res.raw) liveRaw.set(e.id, e); }
-    if (manual) toast(ok ? `실제 데이터로 바꿨어요 · 숙제 ${part.tasks.length}개 · 블록 ${part.blocks.length}개` : info.errors.join(' / '));
-    else if (info.errors.length && !ok) toast(info.errors.join(' / '));
+    const today = todayKey();
+    if (!seeded) {
+      const seed = await PL.loadSeed(new URL('./data/15577.json', import.meta.url));
+      PLAN = PL.newer(PLAN, seed) ?? PL.normalize(null);
+      seeded = true;
+    }
+    await Promise.all([
+      (async () => {
+        try { const r = await loadEvents(src, today); SHEET = r.sheet; liveRaw.clear(); for (const e of r.raw) liveRaw.set(e.id, e); }
+        catch (e) { errors.push('일정: ' + e.message); }
+      })(),
+      (async () => {
+        if (!src.planId) return;
+        try {
+          const remote = await PL.cloudGet(src.planId);
+          if (remote && (remote.updatedAt || 0) > (PLAN.updatedAt || 0)) PLAN = remote;
+          else if ((PLAN.updatedAt || 0) > (remote?.updatedAt || 0)) cloudQueue();
+        } catch (e) { errors.push('15577: ' + e.message); }
+      })(),
+    ]);
+    PL.saveLocal(PLAN);
+    liveInfo = { events: SHEET ? liveRaw.size : null, blocks: Object.values(PLAN.days).reduce((n, l) => n + l.length, 0), errors };
+    rebuild();
+    if (manual) toast(errors.length ? errors.join(' / ') : `실제 데이터로 바꿨어요 · 숙제 ${st.tasks.length}개 · 15577 블록 ${st.blocks.length}개`);
+    else if (errors.length && !SHEET) toast(errors.join(' / '));
   } finally { liveBusy = false; paintConn(); }
+}
+// 15577 온라인 저장 ID가 있으면 고친 뒤 1.5초 있다가 올린다 (15577과 같은 문서, updatedAt 최신 쪽이 이김)
+let cloudT = null;
+function cloudQueue() {
+  if (!src?.planId) return;
+  clearTimeout(cloudT);
+  cloudT = setTimeout(() => PL.cloudPut(src.planId, PLAN).catch((e) => toast(e.message)), 1500);
+}
+function planChanged(msg) {
+  PLAN.updatedAt = Date.now();
+  PL.saveLocal(PLAN); cloudQueue(); rebuild();
+  if (msg) toast(msg);
 }
 const dlg = document.getElementById('conn');
 function openConn() {
@@ -757,7 +950,7 @@ function openConn() {
 dlg.addEventListener('close', async () => {
   const f = dlg.querySelector('form');
   if (dlg.returnValue === 'off') {
-    src = null; liveInfo = null; saveSrc(null);
+    src = null; liveInfo = null; saveSrc({ off: true });
     if (st.source === 'live') { Object.assign(st, sampleState(logicalDay(settingsOf({}), nowMs()).date)); delete st.source; save(); render(); }
     paintConn(); toast('연결을 끊고 샘플로 돌아왔어요');
     return;

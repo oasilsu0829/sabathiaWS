@@ -493,6 +493,33 @@
   .conn-dlg .ev-done{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--ink)}
   .conn-dlg .ev-done input{display:inline;width:18px;height:18px;margin:0;box-shadow:none}
   .dl-add{height:24px;padding:0 11px;margin-right:6px;border-radius:999px;font-size:11.5px;font-weight:700;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line2)}
+  .conn-dlg [hidden]{display:none!important}
+  /* PLANNER 편집 (15577 방식) */
+  .pl-bar{display:flex;align-items:center;gap:6px;margin:-4px 0 12px}
+  .pl-nav{width:30px;height:30px;border-radius:50%;font-size:18px;color:var(--ink2);box-shadow:inset 0 0 0 1px var(--line2)}
+  .pl-date{font-size:15px;font-weight:700;padding:0 4px}
+  .pl-today{height:26px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:600;color:var(--ink2);box-shadow:inset 0 0 0 1px var(--line2)}
+  .pl-prog{margin-left:auto;font-size:12px;color:var(--ink3)}
+  .pl-add{height:30px;padding:0 14px;border-radius:999px;font-size:13px;font-weight:700;background:var(--ink);color:var(--bg)}
+  .pl-row.ed .pl-card{flex-direction:row;align-items:center;gap:10px;padding:0 10px 0 0}
+  .pl-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding:9px 0 9px 14px;text-align:left}
+  .pl-chk{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:transparent;box-shadow:inset 0 0 0 1.5px var(--ink3)}
+  .pl-chk[aria-pressed="true"]{background:var(--c,var(--ink));color:#fff;box-shadow:none}
+  .pl-row.st-late .pl-card{box-shadow:inset 3px 0 0 var(--hot)}
+  .pill.st-late{background:var(--hot);color:#111}
+  .pill.st-next{box-shadow:inset 0 0 0 1px var(--ink2)}
+  button.pl-row.gap{text-align:left}
+  .seg3{display:flex;gap:4px;padding:3px;margin-bottom:14px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line2)}
+  .seg3 label{flex:1;margin:0}
+  .seg3 input,.chips input{position:absolute;opacity:0;pointer-events:none}
+  .seg3 span{display:block;height:32px;line-height:32px;text-align:center;border-radius:999px;font-size:14px;font-weight:600;color:var(--ink3);cursor:pointer}
+  .seg3 input:checked+span{background:var(--ink);color:var(--bg)}
+  .conn-dlg .lbl{font-size:13px;color:var(--ink2);margin-bottom:6px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .chips label{margin:0}
+  .chips span{display:inline-block;height:30px;line-height:30px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:600;color:var(--ink2);box-shadow:inset 0 0 0 1px var(--line2);cursor:pointer}
+  .chips input:checked+span{background:color-mix(in srgb,var(--c) 30%,transparent);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--c)}
+  .seg3 input:focus-visible+span,.chips input:focus-visible+span{outline:2px solid var(--ink);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -553,6 +580,32 @@
   <div class="scrim" id="scrim" data-act="unfocus"></div>
   <nav class="dock" id="dock" aria-label="창 목록"></nav>
   <div class="toast" id="toast" role="status"></div>
+  <dialog id="plDlg" class="conn-dlg" aria-labelledby="plH">
+    <form method="dialog">
+      <h2 id="plH">블록 추가</h2>
+      <div class="seg3" role="radiogroup" aria-label="종류">
+        <label><input type="radio" name="kind" value="solve" checked><span>문풀</span></label>
+        <label><input type="radio" name="kind" value="review"><span>정리</span></label>
+        <label><input type="radio" name="kind" value="lecture"><span>인강</span></label>
+      </div>
+      <label>제목<input name="title" autocomplete="off" placeholder="예: 수평잡기 함수 (비우면 과목 이름)"></label>
+      <div class="lbl">과목</div>
+      <div class="chips" id="plCats" role="radiogroup" aria-label="과목"></div>
+      <div class="ev-2" id="plAmt">
+        <label>분량<input name="units" type="number" min="0" inputmode="numeric" placeholder="예: 26"></label>
+        <label>단위<input name="unit" autocomplete="off"></label>
+      </div>
+      <div class="ev-2">
+        <label>예상 시간 (분)<input name="est" type="number" min="5" step="5" inputmode="numeric"></label>
+        <label>시작<input name="start" type="time" step="300"></label>
+      </div>
+      <p class="conn-note" id="plHint"></p>
+      <label class="ev-done"><input name="done" type="checkbox"> 완료</label>
+      <label id="plActW">실제 걸린 시간 (분)<input name="actual" type="number" min="1" inputmode="numeric"></label>
+      <p class="conn-note">수업·학원과 겹치면 15577처럼 그 뒤로 밀려요.</p>
+      <div class="conn-row"><button value="del" class="conn-off" id="plDel">삭제</button><button value="now" class="conn-off" id="plNow">NOW에 표시</button><span></span><button value="cancel" formnovalidate>닫기</button><button value="save" class="conn-ok">저장</button></div>
+    </form>
+  </dialog>
   <dialog id="evDlg" class="conn-dlg" aria-labelledby="evH">
     <form method="dialog">
       <h2 id="evH">마감 고치기</h2>
@@ -576,9 +629,9 @@
       <h2 id="connH">실제 데이터 연결</h2>
       <label>Sabathia 주소<input name="base" autocomplete="off" spellcheck="false"></label>
       <label>Sabathia 토큰 <small>(설정했을 때만)</small><input name="token" type="password" autocomplete="off"></label>
-      <label>15577 온라인 저장 ID <small>(15577 → 온라인 저장에 넣은 ID)</small><input name="planId" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="예: hyun-15577"></label>
+      <label>15577 온라인 저장 ID <small>(넣으면 15577 앱과 서로 맞춰요. 비우면 이 기기에만 저장)</small><input name="planId" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="예: hyun-15577"></label>
       <p class="conn-st" id="connSt"></p>
-      <p class="conn-note">이 기기 브라우저에만 저장해요. 일정은 Sabathia 일정 앱, 블록은 15577 온라인 저장에서 읽기만 하고 고치지 않아요.</p>
+      <p class="conn-note">연결 정보는 이 기기에만 저장해요. 마감은 Sabathia 일정 앱에, PLANNER 블록은 이 기기(와 15577 ID가 있으면 15577 온라인 저장)에 저장돼요.</p>
       <div class="conn-row"><button value="off" class="conn-off">연결 끊기</button><span></span><button value="cancel">닫기</button><button value="ok" class="conn-ok">연결</button></div>
     </form>
   </dialog>
