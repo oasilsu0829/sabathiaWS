@@ -471,6 +471,22 @@
     .dl-prog{display:none}
     .pl-row{grid-template-columns:44px 12px minmax(0,1fr);gap:8px}
   }
+  .tb-right .conn-btn{visibility:visible;padding:4px 10px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line2)}
+  .tb-right .conn-btn.live{color:var(--ink)}
+  .tb-right .conn-btn.live::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:#7bd88f;vertical-align:1px}
+  .conn-dlg{width:min(460px,calc(100vw - 32px));padding:24px;border:0;border-radius:18px;background:#1a222d;color:var(--ink);box-shadow:0 30px 80px -20px #000;font-family:var(--sans)}
+  .conn-dlg::backdrop{background:rgba(8,12,18,.6);backdrop-filter:blur(4px)}
+  .conn-dlg h2{margin:0 0 16px;font:800 22px var(--disp);letter-spacing:-.03em}
+  .conn-dlg label{display:block;margin:0 0 12px;font-size:13px;color:var(--ink2)}
+  .conn-dlg small{color:var(--ink4)}
+  .conn-dlg input{display:block;width:100%;margin-top:6px;padding:10px 12px;border:0;border-radius:10px;background:#0f151d;color:var(--ink);font:500 15px var(--sans);box-shadow:inset 0 0 0 1px var(--line2)}
+  .conn-st{min-height:1.4em;margin:4px 0 8px;font-size:13px;color:var(--ink)}
+  .conn-note{margin:0 0 16px;font-size:12px;line-height:1.5;color:var(--ink4)}
+  .conn-row{display:flex;gap:8px;align-items:center}
+  .conn-row span{flex:1}
+  .conn-row button{height:36px;padding:0 14px;border-radius:999px;font-size:14px;font-weight:600;color:var(--ink2);box-shadow:inset 0 0 0 1px var(--line2)}
+  .conn-row .conn-ok{background:var(--ink);color:var(--bg);box-shadow:none}
+  .conn-row .conn-off{color:var(--ink4)}
 </style>
 </head>
 <body>
@@ -497,6 +513,7 @@
       <button data-act="mode" data-mode="free" aria-pressed="false">자유 모드</button>
     </div>
     <div class="tb-right">
+      <button class="tb-btn conn-btn" data-act="conn" id="connBtn">샘플 데이터</button>
       <button class="tb-btn" data-act="reset">창 정리</button>
       <span id="dateTxt"></span>
       <span class="clock" id="clock">--:--</span>
@@ -530,6 +547,17 @@
   <div class="scrim" id="scrim" data-act="unfocus"></div>
   <nav class="dock" id="dock" aria-label="창 목록"></nav>
   <div class="toast" id="toast" role="status"></div>
+  <dialog id="conn" class="conn-dlg" aria-labelledby="connH">
+    <form method="dialog">
+      <h2 id="connH">실제 데이터 연결</h2>
+      <label>Sabathia 주소<input name="base" autocomplete="off" spellcheck="false"></label>
+      <label>Sabathia 토큰 <small>(설정했을 때만)</small><input name="token" type="password" autocomplete="off"></label>
+      <label>15577 온라인 저장 ID <small>(15577 → 온라인 저장에 넣은 ID)</small><input name="planId" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="예: hyun-15577"></label>
+      <p class="conn-st" id="connSt"></p>
+      <p class="conn-note">이 기기 브라우저에만 저장해요. 일정은 Sabathia 일정 앱, 블록은 15577 온라인 저장에서 읽기만 하고 고치지 않아요.</p>
+      <div class="conn-row"><button value="off" class="conn-off">연결 끊기</button><span></span><button value="cancel">닫기</button><button value="ok" class="conn-ok">연결</button></div>
+    </form>
+  </dialog>
 </div>
 
 <script type="module" src="./app.js"></script>
