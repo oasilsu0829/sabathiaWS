@@ -86,6 +86,8 @@ tests/               §11 완료 기준 테스트
 - 열기: `npm start` → `http://localhost:8080/ws/` (배포 후 `/ws/`)
 - `?now=2026-11-18T18:58` 시각 고정 · `?reset` 샘플 다시 불러오기
 - 데이터는 이 기기 브라우저(localStorage `sabathia.ws.v1`)에만 저장
+- 첫 화면: 창 네 개는 닫혀 있고 왼쪽에 지금 할 일, 오른쪽에 코로나 일정 시계(`ws/corona.js`·`corona.css`, 시계만 따로 `ws/corona.html`)
+- 배경: 같은 도시를 2시간마다 찍은 사진 12장(`ws/city/00.webp` … `22.webp`)을 지금 시각에 맞춰 두 장씩 섞는다(`ws/city.js`). `#city=14`, `#city=17:30`으로 시각 미리보기
 
 ### 판단 순서 (`ws/engine/judge.js`)
 

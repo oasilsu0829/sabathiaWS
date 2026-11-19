@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sabathia · 코로나 시계</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin:0; background:#08121c; color:#ebeef3; font-family:system-ui,sans-serif }
+  main { position:fixed; inset:0; overflow:hidden; display:grid; place-items:center; isolation:isolate }
+  .city { position:absolute; left:50%; top:50%; width:100vh; width:100dvh; height:100vw; object-fit:cover; transform:translate(-50%,-50%) rotate(-90deg); z-index:-2 }
+  .city img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover }
+  .city .city-over { transition:opacity 2s linear }
+  main::before { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(180deg,#05121d40,#06121bc2) }
+  figure { position:relative; margin:0; width:min(85vw,80vh); aspect-ratio:1 }
+</style>
+<link rel="stylesheet" href="./corona.css">
+<main>
+  <div class="city" aria-hidden="true"></div>
+  <figure id="dayRing" aria-label="코로나 시계. 왼쪽 아래 자정부터 시계 방향으로 하루를 표시합니다.">
+    <canvas aria-hidden="true"></canvas><svg id="agenda" viewBox="-280 -280 560 560" aria-label="오늘 일정"></svg>
+    <figcaption id="eventLabel"><span></span><strong></strong><small></small></figcaption><time id="ringTime"></time>
+  </figure>
+</main>
+<script type="module">
+  import { createTimeline } from './corona.js';
+  import { mountCity } from './city.js';
+  import { judge, settingsOf } from './engine/judge.js';
+  import { sampleState } from './sample.js';
+  import { logicalDay } from '../src/engine/capacity.js';
+  const render = createTimeline(document.querySelector('#dayRing'), Date.now);
+  mountCity(document.querySelector('.city'));
+  function update() {
+    const now = Date.now();
+    let state;
+    try { state = JSON.parse(localStorage.getItem('sabathia.ws.v1')); } catch {}
+    state ??= sampleState(logicalDay(settingsOf({}),now).date);
+    render(now,settingsOf(state),state.fixed ?? [],judge(state,now).blocks);
+  }
+  update();
+  setInterval(update,60000);
+  window.addEventListener('storage',update);
+</script>
+</html>
