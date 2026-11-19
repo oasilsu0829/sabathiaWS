@@ -25,7 +25,7 @@ npm test             # 판단 엔진 테스트 (Node 20+)
 
 ### 휴대폰에 설치
 
-1. `main`에 머지 → `.github/workflows/pages.yml`이 GitHub Pages로 배포 (처음 한 번 Settings → Pages → Source: **GitHub Actions**)
+1. 기본 브랜치(`claude/sabathia-decision-engine-ltf1l1`)에 머지 → `.github/workflows/pages.yml`이 GitHub Pages로 배포 (처음 한 번 Settings → Pages → Source: **GitHub Actions**)
 2. iPhone Safari에서 열고 공유 → **홈 화면에 추가**
 
 ## 사용 흐름

@@ -1,9 +1,9 @@
-# main에 머지되면 GitHub Pages로 배포한다.
+# 기본 브랜치(claude/sabathia-decision-engine-ltf1l1)나 main에 머지되면 GitHub Pages로 배포한다.
 # 처음 한 번: 저장소 Settings → Pages → Source를 "GitHub Actions"로 설정.
 name: Deploy to GitHub Pages
 on:
   push:
-    branches: [main]
+    branches: [claude/sabathia-decision-engine-ltf1l1, main]
   workflow_dispatch:
 permissions:
   contents: read
