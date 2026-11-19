@@ -11,6 +11,10 @@ import { fmtDur, fmtTime, weekdayLabel, weekdayOf, roundTo, addDays } from '../s
 // ---------- Icons ----------
 const P = {
   chevron: '<path d="M6 9l6 6 6-6"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>',
+  right: '<path d="M9 5l7 7-7 7"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+  undo: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>',
   expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/>',
   shrink: '<path d="M4 14h6v6M20 10h-6V4M10 14l-6.5 6.5M14 10l6.5-6.5"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
@@ -58,6 +62,7 @@ let liveInfo = null;
 let PLAN = PL.loadLocal();   // 15577 기록 (planner.js)
 let SHEET = null;            // 마지막으로 읽은 Sabathia 일정 → 시트 상태
 let seeded = false;          // 이번에 ws/data/15577.json 과 비교했는지
+const liveRaw = new Map();   // 일정 원본 (id → 이벤트), 마감 고치기에 씀
 st.sessions ??= [];
 function save() {
   try {
@@ -498,10 +503,13 @@ function ring(p, c) {
 function renderDl() {
   let html = '';
   const dueSort = (a, b) => (J(a.id).due ?? Infinity) - (J(b.id).due ?? Infinity);
+  // 끝낸 숙제는 휴지통으로 (2026-11-19 사용자 요청). 목록에는 남은 것만, 휴지통을 열면 끝낸 것
+  const doneTs = st.tasks.filter(isDone).sort((a, b) => (b.due || '').localeCompare(a.due || ''));
   if (S.sort === 'group') {
     R.groups.forEach((gs) => {
       const g = G(gs.id);
-      const ts = st.tasks.filter((t) => t.g === g.id).sort((a, b) => isDone(a) - isDone(b) || dueSort(a, b));
+      const ts = st.tasks.filter((t) => t.g === g.id && !isDone(t)).sort(dueSort);
+      if (!ts.length) return;
       const mins = gs.exp > 0 ? `약 ${dur(r5(gs.exp))}${gs.unknown ? ' + 미추정' : ''}` : gs.unknown ? '시간 미추정' : '0분';
       html += `<div class="grp${S.open[g.id] ? ' open' : ''}" data-g="${g.id}" style="--c:${g.color}">
         <button class="grp-h" data-act="group" data-id="${g.id}" aria-expanded="${!!S.open[g.id]}">
@@ -515,8 +523,17 @@ function renderDl() {
     });
   } else {
     const sev = { risk: 3, near: 2, attention: 1, calm: 0 };
-    const ts = [...st.tasks].sort((a, b) => isDone(a) - isDone(b) || dueSort(a, b) || sev[J(b.id).urgency] - sev[J(a.id).urgency]);
+    const ts = st.tasks.filter((t) => !isDone(t)).sort((a, b) => dueSort(a, b) || sev[J(b.id).urgency] - sev[J(a.id).urgency]);
     html = `<div class="grp open"><div class="grp-items">${ts.map((t) => { const g = groupOf(t); return dlRow(t, `${g.name}${g.sub ? ' · ' + g.sub : ''}`); }).join('')}</div></div>`;
+  }
+  if (!st.tasks.some((t) => !isDone(t))) html += '<p class="empty-hero" style="margin:14px 0">남은 숙제가 없어요.</p>';
+  if (doneTs.length) {
+    html += `<div class="grp trash${S.trash ? ' open' : ''}" style="--c:var(--ink4)">
+      <button class="grp-h" data-act="trash" aria-expanded="${!!S.trash}"><span class="badge">${ic('trash', 16)}</span>
+        <span><div class="grp-name">휴지통<em> · 끝낸 숙제</em></div><div class="grp-meta">${doneTs.length}개 · 눌러서 ${S.trash ? '닫기' : '보기'}${canEdit() ? ' · 항목을 누르면 완료 취소·삭제' : ''}</div></span>
+        <span class="grp-right"><span class="chev">${ic('chevron', 18)}</span></span></button>
+      <div class="grp-b"><div><div class="grp-items">${S.trash ? doneTs.map((t) => dlRow(t)).join('') : ''}</div></div></div>
+    </div>`;
   }
   html += `<div class="dl-legend"><span><i style="background:${RAIL.calm}"></i>여유</span><span><i style="background:${RAIL.attention}"></i>주의</span><span><i style="background:${RAIL.near}"></i>임박·오늘 필요</span><span class="sep"></span><span><i style="background:var(--red)"></i>마감 전 끝내기 어려움</span></div>`;
   document.getElementById('b-dl').innerHTML = html;
@@ -616,9 +633,9 @@ function renderPlEdit() {
   });
   if (!lay.length) rows.push(`<p class="empty-hero" style="margin:12px 0">이 날 블록이 없어요. ‘+ 블록’으로 넣어 보세요.</p>`);
   const bar = `<div class="pl-bar">
-    <button class="pl-nav" data-act="plday" data-d="-1" aria-label="전날">‹</button>
+    <button class="pl-nav" data-act="plday" data-d="-1" aria-label="전날">${ic('left', 16)}</button>
     <b class="pl-date num">${m}/${d} (${w})</b>
-    <button class="pl-nav" data-act="plday" data-d="1" aria-label="다음 날">›</button>
+    <button class="pl-nav" data-act="plday" data-d="1" aria-label="다음 날">${ic('right', 16)}</button>
     ${k !== today ? '<button class="pl-today" data-act="plday" data-d="0">오늘</button>' : ''}
     <span class="pl-prog num">${prog.doneN}/${prog.n} · ${Math.round(prog.pct)}%</span>
     <button class="pl-add" data-act="pladd">+ 블록</button>
@@ -802,6 +819,7 @@ document.addEventListener('click', (e) => {
     case 'unfocus': S.focus = null; applyLayout(); break;
     case 'dock': { const id = a.dataset.id; S.closed[id] = false; S.collapsed[id] = false; front(id); applyLayout(); break; }
     case 'sort': S.sort = a.dataset.sort; render(); break;
+    case 'trash': S.trash = !S.trash; renderDl(); flush(); restack(); break;
     case 'group': {
       const g = a.dataset.id; S.open[g] = !S.open[g];
       a.closest('.grp').classList.toggle('open', S.open[g]); a.setAttribute('aria-expanded', String(S.open[g]));
@@ -973,7 +991,6 @@ function rebuild() {
   applyLive(st, part); save(); render(); paintConn();
 }
 let liveBusy = false;
-const liveRaw = new Map();
 async function refreshLive(manual) {
   if (!src || liveBusy) return;
   liveBusy = true;
