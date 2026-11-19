@@ -1,4 +1,3 @@
-import { createTimeline } from './corona.js';
 import { mountCity } from './city.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
@@ -175,7 +174,6 @@ function applyLayout() {
   if (FORM === 'phone' && S.mode === 'free') S.mode = 'organized';
   stage.className = (S.mode === 'free' ? 'free' : 'organized') + ' f-' + FORM;
   stage.classList.toggle('has-closed', anyClosed());
-  document.getElementById('dayRing').hidden = ids.some((id) => !S.closed[id]);
   if (ids.some((id) => !S.closed[id])) {
     briefDismissed = true;
     brief.hidden = true;
@@ -285,13 +283,21 @@ function nextRow(after) {
     ? `<button class="next-row" data-act="selblock" data-id="${nx.id}" style="--c:${nx.color}"><span class="k">NEXT</span><span class="sw"></span><b>${esc(nx.title)}</b><span class="num">${fmtTime(nx.start)}</span><span class="arr">${ic('arrow', 15)}</span></button>`
     : '';
 }
-const renderTimeline = createTimeline(document.getElementById('dayRing'),nowMs);
-mountCity(document.getElementById('city'),nowMs);
+// 배경: Unsplash 사진 한 장(bg.webp, ran liwen). 주소 끝 #city 를 붙이면 도시 24시간 사진(city.js)
+if (/city/.test(location.hash)) mountCity(document.getElementById('city'),nowMs);
+else {
+  const bg = new Image();
+  bg.className = 'ws-bg'; bg.alt = ''; bg.draggable = false; bg.decoding = 'async';
+  bg.src = new URL('./bg.webp', import.meta.url).href;
+  document.getElementById('city').replaceWith(bg);
+}
 
 function renderNow() {
-  renderTimeline(R.now,settingsOf(st),st.fixed ?? [],R.blocks);
   if (!briefDismissed) {
-    document.getElementById('briefTitle').textContent = R.decision.title;
+    const bt = document.getElementById('briefTitle');
+    bt.textContent = R.decision.title;
+    // 긴 제목은 글자를 줄인다(두 줄 안쪽으로): 10자까지 그대로, 길수록 작게
+    bt.style.setProperty('--fit', String(Math.max(0.5, Math.min(1, 10 / Math.max(10, [...bt.textContent].length * 0.82)))));
     document.getElementById('briefDetail').textContent = R.decision.message;
     brief.hidden = false;
   }
