@@ -1,3 +1,5 @@
+import { createTimeline } from './corona.js';
+import { mountCity } from './city.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
 import { isDone } from './engine/estimate.js';
@@ -85,7 +87,7 @@ const freeDefault = () => ({
   pl: { x: 132, y: 580, w: 520, h: 360 },
 });
 const S = {
-  mode: 'organized', focus: null, collapsed: {}, closed: {}, order: ['pl', 'dl', 'today', 'now'],
+  mode: 'organized', focus: null, collapsed: {}, closed: Object.fromEntries(ids.map((id) => [id, true])), order: ['pl', 'dl', 'today', 'now'],
   free: freeDefault(), selBlock: null, selHw: {}, sort: 'group',
   open: Object.fromEntries(st.groups.map((g, i) => [g.id, i < 3])), pop: null,
 };
@@ -113,9 +115,26 @@ function orgRects() {
 const focusRect = { x: 120, y: 88, w: 1126, h: 880 };
 const stage = document.getElementById('stage');
 const win = (id) => document.getElementById('w-' + id);
+const brief = document.getElementById('brief');
+let briefDismissed = false;
+brief.addEventListener('click', () => {
+  briefDismissed = true;
+  document.querySelector('#dock button')?.focus({ preventScroll: true });
+  if (matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+    brief.classList.add('leaving');
+    setTimeout(() => { brief.hidden = true; }, 320);
+  } else {
+    brief.hidden = true;
+  }
+});
 function applyLayout() {
   stage.className = S.mode === 'free' ? 'free' : 'organized';
   stage.classList.toggle('has-closed', anyClosed());
+  document.getElementById('dayRing').hidden = ids.some((id) => !S.closed[id]);
+  if (ids.some((id) => !S.closed[id])) {
+    briefDismissed = true;
+    brief.hidden = true;
+  }
   const org = S.mode === 'organized' ? orgRects() : null;
   ids.forEach((id) => {
     const el = win(id), closed = !!S.closed[id];
@@ -137,10 +156,6 @@ function applyLayout() {
   });
   document.getElementById('scrim').classList.toggle('on', !!S.focus);
   document.querySelectorAll('[data-act="mode"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
-  const active = document.querySelector(`[data-act="mode"][data-mode="${S.mode}"]`);
-  const thumb = document.getElementById('segThumb');
-  thumb.style.width = active.offsetWidth + 'px';
-  thumb.style.transform = `translateX(${active.offsetLeft - 2}px)`;
   renderDock();
 }
 const front = (id) => { S.order = S.order.filter((x) => x !== id).concat(id); };
@@ -219,7 +234,16 @@ function nextRow(after) {
     ? `<button class="next-row" data-act="selblock" data-id="${nx.id}" style="--c:${nx.color}"><span class="k">NEXT</span><span class="sw"></span><b>${esc(nx.title)}</b><span class="num">${fmtTime(nx.start)}</span><span class="arr">${ic('arrow', 15)}</span></button>`
     : '';
 }
+const renderTimeline = createTimeline(document.getElementById('dayRing'),nowMs);
+mountCity(document.getElementById('city'),nowMs);
+
 function renderNow() {
+  renderTimeline(R.now,settingsOf(st),st.fixed ?? [],R.blocks);
+  if (!briefDismissed) {
+    document.getElementById('briefTitle').textContent = R.decision.title;
+    document.getElementById('briefDetail').textContent = R.decision.message;
+    brief.hidden = false;
+  }
   const n = R.now, v = nowView(), D = R.decision;
   const box = document.getElementById('b-now');
   const link = document.getElementById('nowLink');
@@ -341,7 +365,7 @@ function renderToday() {
     </div>
     <div class="td-judge${line.warn ? ' warn' : ''}"><i></i>${esc(line.txt)}</div>
     <div class="strip"><div class="sec-label" style="margin-top:0"><span class="kr">시간대별 흐름</span><span>${fmtTime(s0)} — ${fmtTime(s1)}</span></div>
-      <div class="strip-bar">${fixedBars}${bars}<span style="position:absolute;top:0;bottom:0;left:${pos(R.now)}%;width:2px;background:var(--hot)"></span></div>
+      <div class="strip-bar">${fixedBars}${bars}<span style="position:absolute;top:0;bottom:0;left:${pos(R.now)}%;width:2px;background:var(--ink2)"></span></div>
       <div class="strip-ax">${ax}</div></div>`;
 }
 
@@ -444,10 +468,10 @@ function renderPl() {
 
 // ---------- Dock ----------
 function renderDock() {
-  const items = [['now', '01', '지금 공부', 'var(--ink)'], ['today', '02', '오늘', 'var(--ink2)'], ['dl', '03', '마감', 'var(--ink2)'], ['pl', '04', '플래너', 'var(--ink2)']];
-  document.getElementById('dock').innerHTML = items.map(([id, ab, lb, c]) => {
+  document.getElementById('dock').innerHTML = Object.keys(NAMES).map((id) => {
     const off = !!S.closed[id];
-    return `<button data-act="dock" data-id="${id}" class="${off ? 'off' : ''}${S.collapsed[id] && !off ? ' min' : ''}" style="--c:${c}" aria-label="${NAMES[id]} ${lb} ${off ? '창 다시 열기' : '창 앞으로'}"><span class="di">${ab}</span>${lb}${off ? '<span class="st">OPEN</span>' : ''}</button>`;
+    const minimized = S.collapsed[id] && !off;
+    return `<button data-act="dock" data-id="${id}" class="${minimized ? 'min' : ''}" aria-label="${NAMES[id]} ${off ? '창 다시 열기' : '창 앞으로'}">${NAMES[id]}</button>`;
   }).join('');
 }
 
