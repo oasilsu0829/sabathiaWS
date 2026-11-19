@@ -117,7 +117,18 @@ const S = {
   mode: 'organized', focus: null, collapsed: {}, closed: Object.fromEntries(ids.map((id) => [id, true])), order: ['pl', 'dl', 'today', 'now'],
   free: freeDefault(), selBlock: null, selHw: {}, sort: 'group',
   open: Object.fromEntries(st.groups.map((g, i) => [g.id, i < 3])), pop: null,
+  split: { col: null, L: null, R: null }, // 정돈 모드 비율 (경계를 끌어 바꿈)
+  stackH: {},                              // 세로·폰: 창마다 높이
 };
+// 창 크기·배치는 이 기기에 남긴다 (2026-11-19 사용자 요청: 창 크기 조절)
+const LAYOUT_KEY = 'sabathia.ws.layout';
+try {
+  const L = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+  if (L) { if (L.mode) S.mode = L.mode; if (L.split) Object.assign(S.split, L.split); if (L.stackH) S.stackH = L.stackH; if (L.free && L.form) S._savedFree = L; }
+} catch {}
+function saveLayout() {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({ mode: S.mode, split: S.split, stackH: S.stackH, free: S.free, form: FORM })); } catch {}
+}
 const anyClosed = () => ids.some((id) => S.closed[id]);
 
 // ---------- Layout ----------
@@ -134,13 +145,13 @@ const STACK = { now: 640, today: 330, dl: 560, pl: 620 };
 function stackRects() {
   const open = ids.filter((id) => !S.closed[id]);
   const avail = VH - TOP - PAD - (anyClosed() ? 64 : 0);
-  const want = open.map((id) => (S.collapsed[id] ? HEAD : Math.min(STACK[id], natural(id))));
+  const want = open.map((id) => (S.collapsed[id] ? HEAD : S.stackH[id] ?? Math.min(STACK[id], natural(id))));
   const used = want.reduce((a, b) => a + b, 0) + GAP * Math.max(0, open.length - 1);
-  const grow = open.filter((id) => !S.collapsed[id]).length;
+  const grow = open.filter((id) => !S.collapsed[id] && S.stackH[id] == null).length;
   const extra = used < avail && grow ? (avail - used) / grow : 0;
   const out = {};
   let y = TOP;
-  open.forEach((id, i) => { const h = Math.round(want[i] + (S.collapsed[id] ? 0 : extra)); out[id] = { x: PAD, y, w: W - PAD * 2, h }; y += h + GAP; });
+  open.forEach((id, i) => { const h = Math.round(want[i] + (S.collapsed[id] || S.stackH[id] != null ? 0 : extra)); out[id] = { x: PAD, y, w: W - PAD * 2, h }; y += h + GAP; });
   return out;
 }
 function orgRects() {
@@ -148,10 +159,11 @@ function orgRects() {
   const avail = H - TOP - PAD - (anyClosed() ? 64 : 0);
   const L = ['now', 'pl'].filter((id) => !S.closed[id]), Rr = ['today', 'dl'].filter((id) => !S.closed[id]);
   const full = W - PAD * 2;
-  let lw = Math.round(clamp(full * 0.443, 480, 820)), rx = PAD + lw + GAP, rw = full - lw - GAP;
+  let lw = Math.round(S.split.col ? clamp(full * S.split.col, 340, full - 340 - GAP) : clamp(full * 0.443, 480, 820)), rx = PAD + lw + GAP, rw = full - lw - GAP;
   if (!L.length) { rx = PAD; rw = full; }
   if (!Rr.length) lw = full;
-  const pref = { now: Math.round(avail * 0.7), today: Math.round(avail * 0.343) };
+  const lim = (r) => clamp(Math.round(avail * r), HEAD + 120, avail - GAP - HEAD - 120);
+  const pref = { now: lim(S.split.L ?? 0.7), today: lim(S.split.R ?? 0.343) };
   const col = (list, x, w) => {
     if (!list.length) return {};
     if (list.length === 1) { const a = list[0]; return { [a]: { x, y: TOP, w, h: S.collapsed[a] ? HEAD : avail } }; }
@@ -214,11 +226,41 @@ function applyLayout() {
     fb.setAttribute('aria-label', S.focus === id ? '집중 보기 닫기' : '집중 보기');
     el.querySelector('.col').setAttribute('aria-expanded', String(!S.collapsed[id]));
   });
+  placeSplits(org);
+  saveLayout();
   document.getElementById('scrim').classList.toggle('on', !!S.focus);
   document.querySelectorAll('[data-act="mode"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
   renderDock();
 }
 const front = (id) => { S.order = S.order.filter((x) => x !== id).concat(id); };
+
+// 정돈 모드(가로)에서 창 사이 경계: 세로선 = 왼쪽·오른쪽 너비, 가로선 = 위아래 창 높이
+function placeSplits(org) {
+  stage.querySelectorAll('.split').forEach((el) => el.remove());
+  if (!org || FORM !== 'wide' || S.focus) return;
+  const add = (cls, data, r) => {
+    const el = document.createElement('div');
+    el.className = 'split ' + cls; Object.assign(el.dataset, data);
+    el.setAttribute('aria-hidden', 'true');
+    Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+    stage.append(el);
+  };
+  const l = org.now ?? org.pl, r = org.today ?? org.dl;
+  if (l && r) { const bot = Math.max(...ids.filter((id) => org[id]).map((id) => org[id].y + org[id].h)); add('v', { s: 'col' }, { x: l.x + l.w - 4, y: TOP, w: GAP + 8, h: bot - TOP }); }
+  for (const [a, b, key] of [['now', 'pl', 'L'], ['today', 'dl', 'R']]) {
+    if (org[a] && org[b] && !S.collapsed[a] && !S.collapsed[b]) add('h', { s: key }, { x: org[a].x, y: org[a].y + org[a].h - 4, w: org[a].w, h: GAP + 8 });
+  }
+}
+// 창마다 여덟 방향 손잡이 (자유 모드) — 세로·폰의 정돈 모드에서는 아래쪽만
+ids.forEach((id) => {
+  const w = win(id);
+  w.querySelector('.rz')?.remove();
+  for (const d of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
+    const h = document.createElement('span');
+    h.className = 'rh rh-' + d; h.dataset.dir = d; h.setAttribute('aria-hidden', 'true');
+    w.append(h);
+  }
+});
 
 // ---------- Progress & estimate views ----------
 const prevW = {};
@@ -749,7 +791,7 @@ document.addEventListener('click', (e) => {
   if (/^pl(day|add|edit|check)$/.test(act) && PLAN && src && plAction(a)) return;
   switch (act) {
     case 'mode': if (a.dataset.mode === 'free') toFree(); else { S.mode = 'organized'; applyLayout(); } break;
-    case 'reset': S.free = freeDefault(); S.collapsed = {}; S.closed = {}; applyLayout(); break;
+    case 'reset': S.free = freeDefault(); S.collapsed = {}; S.closed = {}; S.split = { col: null, L: null, R: null }; S.stackH = {}; applyLayout(); toast('창 크기와 배치를 처음대로 돌렸어요'); break;
     case 'collapse': if (S.focus === wid) S.focus = null; S.collapsed[wid] = !S.collapsed[wid]; applyLayout(); break;
     case 'focus': S.focus = S.focus === wid ? null : wid; if (S.focus) front(wid); applyLayout(); break;
     case 'close':
@@ -819,8 +861,9 @@ stage.addEventListener('pointerdown', (e) => {
   const w = e.target.closest('.win'); if (!w) return;
   const id = w.dataset.id;
   if (S.mode === 'free' && !S.focus) { front(id); ids.forEach((x) => { win(x).style.zIndex = 10 + S.order.indexOf(x); win(x).classList.toggle('front', S.order[S.order.length - 1] === x); }); }
-  const head = e.target.closest('.wh'), rz = e.target.closest('.rz');
-  if ((!head && !rz) || e.target.closest('button') || S.focus || FORM === 'phone') return;
+  const head = e.target.closest('.wh'), rh = e.target.closest('.rh');
+  if (rh && !S.focus) return resizeWin(e, w, id, rh.dataset.dir);
+  if (!head || e.target.closest('button') || S.focus || FORM === 'phone') return;
   e.preventDefault();
   const sx = e.clientX, sy = e.clientY;
   let started = false, r0;
@@ -837,13 +880,49 @@ stage.addEventListener('pointerdown', (e) => {
     if (head) {
       r.x = clamp(r0.x + dx, -r.w + 120, W - 120); r.y = clamp(r0.y + dy, TOP - 10, H - HEAD);
       w.style.left = r.x + 'px'; w.style.top = r.y + 'px';
-    } else {
-      r.w = clamp(r0.w + dx, 340, W - r.x - 8); r.h = clamp(r0.h + dy, 200, H - r.y - 8);
-      w.style.width = r.w + 'px'; w.style.height = r.h + 'px';
     }
   };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); w.classList.remove('dragging', 'resizing'); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); w.classList.remove('dragging', 'resizing'); saveLayout(); };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+});
+// 창 크기 바꾸기: 자유 모드는 여덟 방향, 세로·폰 정돈 모드는 아래쪽(높이)만
+const MINW = 320, MINH = 160;
+function drag(e, onMove, onEnd) {
+  e.preventDefault();
+  const sx = e.clientX, sy = e.clientY;
+  const move = (ev) => onMove((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, ev);
+  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); onEnd?.(); saveLayout(); };
+  addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}
+function resizeWin(e, w, id, dir) {
+  if (S.mode === 'organized' && FORM !== 'wide') {
+    if (dir !== 's') return;
+    const h0 = w.offsetHeight;
+    w.classList.add('resizing');
+    return drag(e, (dx, dy) => { S.stackH[id] = Math.round(clamp(h0 + dy, MINH, 2400)); applyLayout(); }, () => w.classList.remove('resizing'));
+  }
+  if (S.mode !== 'free') return;
+  const r = S.free[id], r0 = { ...r };
+  w.classList.add('resizing');
+  drag(e, (dx, dy) => {
+    if (dir.includes('e')) r.w = clamp(r0.w + dx, MINW, W - r0.x - 4);
+    if (dir.includes('s')) r.h = clamp(r0.h + dy, MINH, H - r0.y - 4);
+    if (dir.includes('w')) { const nw = clamp(r0.w - dx, MINW, r0.x + r0.w); r.x = r0.x + r0.w - nw; r.w = nw; }
+    if (dir.includes('n')) { const nh = clamp(r0.h - dy, MINH, r0.y + r0.h - (TOP - 10)); r.y = r0.y + r0.h - nh; r.h = nh; }
+    Object.assign(w.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  }, () => w.classList.remove('resizing'));
+}
+// 정돈 모드 경계 끌기
+stage.addEventListener('pointerdown', (e) => {
+  const sp = e.target.closest('.split'); if (!sp) return;
+  const key = sp.dataset.s, org = orgRects(), full = W - PAD * 2, avail = H - TOP - PAD - (anyClosed() ? 64 : 0);
+  const l = org.now ?? org.pl, top = key === 'L' ? org.now : org.today;
+  sp.classList.add('on');
+  drag(e, (dx, dy) => {
+    if (key === 'col') S.split.col = clamp((l.w + dx) / full, 0.25, 0.75);
+    else S.split[key] = clamp((top.h + dy) / avail, 0.15, 0.85);
+    applyLayout(); restack?.();
+  }, () => stage.querySelector('.split.on')?.classList.remove('on'));
 });
 stage.addEventListener('dblclick', (e) => {
   const h = e.target.closest('.wh'); if (!h || e.target.closest('button')) return;
@@ -859,8 +938,9 @@ function sizeStage() {
 function fit() {
   const was = FORM;
   measure();
-  if (was !== FORM) S.free = freeDefault();
-  else ids.forEach((id) => { const r = S.free[id]; r.w = Math.min(r.w, W - 16); r.h = Math.min(r.h, Math.max(200, H - TOP - 8)); r.x = clamp(r.x, 0, W - r.w); r.y = clamp(r.y, TOP - 10, Math.max(TOP, H - r.h)); });
+  if (S._savedFree) { const L = S._savedFree; delete S._savedFree; if (L.form === FORM) S.free = { ...freeDefault(), ...L.free }; }
+  else if (was !== FORM) S.free = freeDefault();
+  ids.forEach((id) => { const r = S.free[id]; r.w = Math.min(r.w, W - 16); r.h = Math.min(r.h, Math.max(200, H - TOP - 8)); r.x = clamp(r.x, 0, W - r.w); r.y = clamp(r.y, TOP - 10, Math.max(TOP, H - r.h)); });
   sizeStage();
 }
 let fitT;

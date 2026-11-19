@@ -97,9 +97,31 @@
   .wb{flex:1;min-height:0;overflow:auto;container-type:inline-size;padding:18px 20px 20px;transition:opacity .3s}
   .wb::-webkit-scrollbar{width:0}
   .win.collapsed .wb{opacity:0;pointer-events:none}
-  .rz{position:absolute;right:0;bottom:0;width:24px;height:24px;cursor:nwse-resize;touch-action:none;opacity:0;pointer-events:none;transition:opacity .3s}
-  .rz::after{content:"";position:absolute;right:7px;bottom:7px;width:8px;height:8px;border-right:1.5px solid var(--ink4);border-bottom:1.5px solid var(--ink4);border-bottom-right-radius:3px}
-  #stage.free .win:not(.collapsed):not(.focused) .rz{opacity:1;pointer-events:auto}
+  /* 창 크기 손잡이: 자유 모드 = 네 변·네 모서리, 세로·폰 정돈 모드 = 아래쪽만 (2026-11-19) */
+  .rh{position:absolute;z-index:6;touch-action:none;pointer-events:none}
+  .rh-n,.rh-s{left:18px;right:18px;height:10px;cursor:ns-resize}
+  .rh-n{top:0}.rh-s{bottom:0}
+  .rh-e,.rh-w{top:18px;bottom:18px;width:10px;cursor:ew-resize}
+  .rh-e{right:0}.rh-w{left:0}
+  .rh-ne,.rh-nw,.rh-se,.rh-sw{width:22px;height:22px}
+  .rh-ne{top:0;right:0;cursor:nesw-resize}.rh-sw{bottom:0;left:0;cursor:nesw-resize}
+  .rh-nw{top:0;left:0;cursor:nwse-resize}.rh-se{bottom:0;right:0;cursor:nwse-resize}
+  .rh-se::after{content:"";position:absolute;right:7px;bottom:7px;width:8px;height:8px;border-right:1.5px solid var(--ink4);border-bottom:1.5px solid var(--ink4);border-bottom-right-radius:3px;opacity:0;transition:opacity .3s}
+  #stage.free .win:not(.collapsed):not(.focused) .rh{pointer-events:auto}
+  #stage.free .win:not(.collapsed):not(.focused) .rh-se::after{opacity:1}
+  #stage.organized:not(.f-wide) .win:not(.collapsed):not(.focused) .rh-s{pointer-events:auto;left:0;right:0;height:16px}
+  #stage.organized:not(.f-wide) .win:not(.collapsed):not(.focused) .rh-s::after{content:"";position:absolute;left:50%;bottom:5px;width:44px;height:4px;margin-left:-22px;border-radius:4px;background:var(--line2)}
+  .win.resizing{transition:none!important;user-select:none;-webkit-user-select:none}
+  .win.resizing iframe{pointer-events:none}
+  .split{position:absolute;z-index:40;touch-action:none}
+  .split.v{cursor:ew-resize}
+  .split.h{cursor:ns-resize}
+  .split::after{content:"";position:absolute;border-radius:4px;background:var(--ink2);opacity:0;transition:opacity .2s}
+  .split.v::after{left:50%;top:50%;width:4px;height:56px;margin:-28px 0 0 -2px}
+  .split.h::after{top:50%;left:50%;height:4px;width:56px;margin:-2px 0 0 -28px}
+  .split:hover::after,.split.on::after{opacity:.8}
+  @media (hover:none){.split::after{opacity:.35}}
+  #stage:has(.split.on) .win{transition:none!important}
   .scrim{position:absolute;inset:0;background:rgba(10,10,10,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .45s;z-index:90}
   .scrim.on{opacity:1;pointer-events:auto}
 
@@ -556,25 +578,25 @@
   <section class="win closed" inert id="w-now" data-id="now" aria-label="지금 공부">
     <div class="wh"><span class="wi">01</span><span class="wt">NOW</span><span class="ws">지금 공부</span>
       <div class="wc"><span class="link-chip" id="nowLink"></span><button class="wbtn col" data-act="collapse" aria-label="접기"><span data-ic="chevron"></span></button><button class="wbtn foc" data-act="focus" aria-label="집중 보기"><span data-ic="expand"></span></button><button class="wbtn cls" data-act="close" aria-label="NOW 창 닫기"><span data-ic="close"></span></button></div></div>
-    <div class="wb" id="b-now"></div><span class="rz" aria-hidden="true"></span>
+    <div class="wb" id="b-now"></div>
   </section>
 
   <section class="win closed" inert id="w-today" data-id="today" aria-label="오늘 시간">
     <div class="wh"><span class="wi">02</span><span class="wt">TODAY</span><span class="ws">오늘의 시간</span>
       <div class="wc"><button class="wbtn col" data-act="collapse" aria-label="접기"><span data-ic="chevron"></span></button><button class="wbtn foc" data-act="focus" aria-label="집중 보기"><span data-ic="expand"></span></button><button class="wbtn cls" data-act="close" aria-label="TODAY 창 닫기"><span data-ic="close"></span></button></div></div>
-    <div class="wb" id="b-today"></div><span class="rz" aria-hidden="true"></span>
+    <div class="wb" id="b-today"></div>
   </section>
 
   <section class="win closed" inert id="w-dl" data-id="dl" aria-label="마감">
     <div class="wh"><span class="wi">03</span><span class="wt">DEADLINES</span><span class="ws">숙제 · 마감</span>
       <div class="wc"><button class="dl-add" data-act="evadd" id="dlAdd" hidden>+ 추가</button><div class="dl-tools" role="group" aria-label="정렬"><button data-act="sort" data-sort="group" aria-pressed="true">분류별</button><button data-act="sort" data-sort="due" aria-pressed="false">마감순</button></div><button class="wbtn col" data-act="collapse" aria-label="접기"><span data-ic="chevron"></span></button><button class="wbtn foc" data-act="focus" aria-label="집중 보기"><span data-ic="expand"></span></button><button class="wbtn cls" data-act="close" aria-label="DEADLINES 창 닫기"><span data-ic="close"></span></button></div></div>
-    <div class="wb" id="b-dl"></div><span class="rz" aria-hidden="true"></span>
+    <div class="wb" id="b-dl"></div>
   </section>
 
   <section class="win closed" inert id="w-pl" data-id="pl" aria-label="플래너">
     <div class="wh"><span class="wi">04</span><span class="wt">PLANNER</span><span class="ws" id="plSub">오늘 계획</span>
       <div class="wc"><button class="wbtn col" data-act="collapse" aria-label="접기"><span data-ic="chevron"></span></button><button class="wbtn foc" data-act="focus" aria-label="크게 보기"><span data-ic="expand"></span></button><button class="wbtn cls" data-act="close" aria-label="PLANNER 창 닫기"><span data-ic="close"></span></button></div></div>
-    <div class="wb" id="b-pl"></div><span class="rz" aria-hidden="true"></span>
+    <div class="wb" id="b-pl"></div>
   </section>
 
   <div class="scrim" id="scrim" data-act="unfocus"></div>
