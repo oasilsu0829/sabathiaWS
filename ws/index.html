@@ -586,6 +586,49 @@
   .mu-note{font-size:11.5px;color:var(--ink3);line-height:1.5;margin:10px 0 0}
   .win.must-left .wt{color:var(--hot)}
   .dock button.must-on b{margin-left:5px;font-size:.8em;color:var(--hot)}
+  /* ---------- 쫀득한 움직임 + 소리 버튼 (2026-11-21) ----------
+     --spring = 감쇠 스프링(조금 넘쳤다 돌아옴, 창 위치·크기), --bounce = 더 출렁(작은 것).
+     linear()를 모르는 브라우저는 넘침 있는 cubic-bezier로. 누름·창 열고 닫기·끌기 기울기는 motion.js */
+  :root{
+    --spring:linear(0, 0.019, 0.07, 0.142, 0.229, 0.324, 0.422, 0.518, 0.609, 0.693, 0.769, 0.835, 0.892, 0.94, 0.979, 1.009, 1.032, 1.049, 1.06, 1.066, 1.068, 1.067, 1.064, 1.06, 1.054, 1.047, 1.041, 1.034, 1.028, 1.022, 1.017, 1.012, 1);
+    --bounce:linear(0, 0.057, 0.202, 0.396, 0.605, 0.804, 0.972, 1.1, 1.183, 1.226, 1.232, 1.212, 1.174, 1.127, 1.078, 1.034, 0.997, 0.97, 0.953, 0.946, 0.947, 0.953, 0.962, 0.974, 0.985, 0.995, 1.003, 1.008, 1.012, 1.013, 1.012, 1.01, 1);
+  }
+  @supports not (transition-timing-function:linear(0, 1)){
+    :root{--spring:cubic-bezier(.3,1.3,.5,1);--bounce:cubic-bezier(.34,1.8,.5,1)}
+  }
+  .win{transition:left .75s var(--spring),top .75s var(--spring),width .75s var(--spring),height .75s var(--spring),box-shadow .35s,opacity .35s,filter .4s,transform .7s var(--bounce),visibility 0s}
+  /* 누름은 motion.js가 scale로 찌그러뜨린다 → 예전 transform 누름은 끈다 */
+  .hw:active,.btn-primary:active,.btn-sm:active,.wbtn:active,button.pl-row:active .pl-card{transform:none}
+  .track .fill,.pip i,.pl-nowbar i{transition:width 1.15s var(--spring)}
+  .tile .s{transition:width 1.25s var(--spring)}
+  .segs span{transition:background .4s,transform .5s var(--bounce)}
+  @keyframes pop{0%{transform:scale(1,1)}22%{transform:scale(1.25,3)}48%{transform:scale(.9,.55)}72%{transform:scale(1.05,1.25)}100%{transform:scale(1,1)}}
+  .segs span.pop{animation:pop .65s ease-out}
+  .chev,.wbtn svg{transition:transform .65s var(--bounce)}
+  .grp-b{transition:grid-template-rows .6s var(--spring)}
+  .radio,.pl-chk,.mu-box{transition:background .25s,border-color .25s,box-shadow .25s}
+  .toast{transition:opacity .18s,transform .55s var(--bounce)}
+  .dock button{transition:translate .5s var(--bounce),color .2s}
+  @media (hover:hover){.dock button:hover{translate:0 -5px}}
+  .seg3 span,.chips span{transition:background .25s,color .25s,box-shadow .25s}
+  @media (prefers-reduced-motion:no-preference){
+    .conn-dlg[open]{animation:dlg-in .6s var(--bounce)}
+    .conn-dlg[open]::backdrop{animation:dlg-fade .3s ease-out}
+    @keyframes dlg-in{from{opacity:0;scale:.86 .78;translate:0 34px}}
+    @keyframes dlg-fade{from{opacity:0}}
+    #brief:not([hidden]) > *{animation:type-arrive .95s var(--bounce) backwards}
+    @keyframes type-arrive{from{opacity:0;transform:translateY(44px) scale(.94,.82)}}
+    #briefTitle .w{white-space:nowrap}
+    #briefTitle .ch{display:inline-block;animation:ch-in .9s var(--bounce) backwards;animation-delay:calc(var(--i) * var(--step,26ms) + 90ms)}
+    @keyframes ch-in{from{opacity:0;transform:translateY(.42em) scale(.6,1.35)}}
+    #brief.leaving{animation:type-exit .42s cubic-bezier(.5,0,.8,.35) both}
+    @keyframes type-exit{28%{transform:scale(1.04,.94)}to{opacity:0;filter:blur(10px);transform:translateY(-36px) scale(.86,1.12)}}
+  }
+  /* 무대는 스크롤되지 않는다(움직이는 중인 버튼에 포커스가 가도 옆으로 밀리지 않게) */
+  @supports (overflow:clip){#stage{overflow:clip}}
+  .tb-right .snd-btn{visibility:visible;gap:6px}
+  .snd-btn[aria-pressed="false"]{color:var(--ink4)}
+  #stage.f-phone .snd-btn span{display:none}
 </style>
 </head>
 <body>
@@ -613,6 +656,7 @@
       <button data-act="mode" data-mode="free" aria-pressed="false">자유 모드</button>
     </div>
     <div class="tb-right">
+      <button class="tb-btn snd-btn" data-act="sfx" id="sfxBtn" aria-pressed="true" aria-label="효과음 끄기"></button>
       <button class="tb-btn conn-btn" data-act="conn" id="connBtn">샘플 데이터</button>
       <button class="tb-btn" data-act="reset">창 정리</button>
       <span id="dateTxt"></span>

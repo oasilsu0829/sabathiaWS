@@ -2,6 +2,8 @@ import { mountCity } from './city.js';
 import { loadSrc, saveSrc, loadEvents, combine, applyLive, sendEvent, DEFAULT_BASE, ID_RE } from './live.js';
 import * as PL from './planner.js';
 import * as MU from './must.js';
+import * as FX from './sfx.js';
+import * as MO from './motion.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
 import { isDone } from './engine/estimate.js';
@@ -199,6 +201,7 @@ const brief = document.getElementById('brief');
 let briefDismissed = false;
 brief.addEventListener('click', () => {
   briefDismissed = true;
+  FX.play('brief');
   document.querySelector('#dock button')?.focus({ preventScroll: true });
   if (matchMedia('(prefers-reduced-motion: no-preference)').matches) {
     brief.classList.add('leaving');
@@ -222,9 +225,12 @@ function applyLayout() {
   if (FORM !== 'wide') ids.forEach((id) => { if (S.closed[id]) return; const r = org ? org[id] : S.free[id]; bottom = Math.max(bottom, r.y + (org || !S.collapsed[id] ? r.h : HEAD)); });
   H = Math.max(VH, bottom ? bottom + PAD + (anyClosed() ? 64 : 0) : 0);
   sizeStage();
+  let opening = 0;
   ids.forEach((id) => {
-    const el = win(id), closed = !!S.closed[id];
+    const el = win(id), closed = !!S.closed[id], was = el.classList.contains('closed');
     el.classList.toggle('closed', closed);
+    if (was && !closed) MO.openWin(el, opening++);
+    else if (!was && closed) MO.closeWin(el);
     el.inert = closed;
     if (!closed) {
       const r = S.focus === id ? fr : org ? org[id] : { ...S.free[id], h: S.collapsed[id] ? HEAD : S.free[id].h };
@@ -363,7 +369,14 @@ else {
 function renderNow() {
   if (!briefDismissed) {
     const bt = document.getElementById('briefTitle');
-    bt.textContent = R.decision.title;
+    if (bt.dataset.t !== R.decision.title) {
+      // 글자마다 튀어 오르게: 낱말은 줄바꿈 없이 묶고 글자마다 순서(--i)
+      bt.dataset.t = R.decision.title;
+      let i = 0;
+      const n = [...R.decision.title.replace(/\s+/g, '')].length;
+      bt.style.setProperty('--step', Math.min(26, 520 / Math.max(1, n)).toFixed(1) + 'ms');
+      bt.innerHTML = R.decision.title.split(/(\s+)/).map((w) => /^\s+$/.test(w) || !w ? w : `<span class="w">${[...w].map((c) => `<span class="ch" style="--i:${i++}">${esc(c)}</span>`).join('')}</span>`).join('');
+    }
     // 긴 제목은 글자를 줄인다(두 줄 안쪽으로): 10자까지 그대로, 길수록 작게
     bt.style.setProperty('--fit', String(Math.max(0.5, Math.min(1, 10 / Math.max(10, [...bt.textContent].length * 0.82)))));
     document.getElementById('briefDetail').textContent = R.decision.message;
@@ -704,6 +717,7 @@ function openPl(id, preset = {}) {
   document.getElementById('plNow').hidden = !b || PL.findB(PLAN, id).k !== R.today;
   const sg = plHint();
   if (!b && sg) f.est.value = sg.min;
+  FX.play('sheet');
   plDlg.showModal();
 }
 plDlg.addEventListener('input', (e) => {
@@ -736,13 +750,17 @@ plDlg.addEventListener('close', () => {
 });
 function plAction(a) {
   const act = a.dataset.act;
-  if (act === 'plday') { const k = S.plDay ?? R.today; S.plDay = +a.dataset.d === 0 ? null : addDays(k, +a.dataset.d); if (S.plDay === R.today) S.plDay = null; renderPl(); flush(); return true; }
+  if (act === 'plday') { FX.play('select'); const k = S.plDay ?? R.today; S.plDay = +a.dataset.d === 0 ? null : addDays(k, +a.dataset.d); if (S.plDay === R.today) S.plDay = null; renderPl(); flush(); return true; }
   if (act === 'pladd') { openPl(null, { start: a.dataset.start != null ? +a.dataset.start : undefined, title: a.dataset.title || '' }); return true; }
   if (act === 'pledit') { openPl(a.dataset.id); return true; }
   if (act === 'plcheck') {
     const b = PL.findB(PLAN, a.dataset.id).b; if (!b) return true;
-    if (b.done) { PL.undone(PLAN, b.id); planChanged('완료를 취소했어요'); }
+    const was = b.done;
+    FX.play(was ? 'uncheck' : 'complete');
+    if (was) { PL.undone(PLAN, b.id); planChanged('완료를 취소했어요'); }
     else { PL.complete(PLAN, b.id, b.est || b.dur); planChanged(`${b.title} 완료 · 실제 시간은 눌러서 고칠 수 있어요`); }
+    const chk = document.querySelector(`[data-act="plcheck"][data-id="${CSS.escape(b.id)}"]`);
+    if (was) MO.bump(chk, 0.6); else { MO.pop(chk); MO.jiggle(chk?.closest('.pl-row')); }
     return true;
   }
   return false;
@@ -781,16 +799,27 @@ document.getElementById('mustAdd').addEventListener('submit', (e) => {
   MUST = MU.add(MUST, t, f.daily.checked);
   saveMust(); f.t.value = '';
   renderMust(); renderDock(); restack();
+  FX.play('save');
+  MO.jiggle(document.querySelector('#mustList .mu-row:last-child'));
 });
 async function mustAction(act, a) {
   const day = mustDay();
+  let after = null;
   if (act === 'mtog') {
     MUST = MU.toggle(MUST, a.dataset.id, day);
+    const on = MU.isDoneOn(MUST, a.dataset.id, day), id = a.dataset.id;
+    FX.play(!on ? 'uncheck' : !mustLeft() ? 'allDone' : 'check');
+    after = () => {
+      const box = document.querySelector(`[data-act="mtog"][data-id="${CSS.escape(id)}"] .mu-box`);
+      if (on) MO.pop(box); else MO.bump(box, 0.6);
+      MO.bump(document.querySelector('#mustList .mu-top .big'), on && !mustLeft() ? 1.6 : 1);
+    };
     if (!mustLeft() && MUST.items.length) toast('오늘 꼭 할 건 다 했어요');
   } else if (act === 'mdel') {
     const x = MUST.items.find((i) => i.id === a.dataset.id);
     if (x && !confirm(`‘${x.t}’을(를) 목록에서 지울까요?`)) return;
     MUST = MU.remove(MUST, a.dataset.id);
+    FX.play('del');
   } else if (act === 'mwarn') {
     MUST = { ...MUST, warn: !MUST.warn };
     toast(MUST.warn ? '남은 게 있으면 창을 닫기 전에 한 번 묻습니다 (컴퓨터 브라우저)' : '닫을 때 확인을 껐어요');
@@ -798,14 +827,15 @@ async function mustAction(act, a) {
     if (MUST.notify && 'Notification' in window && Notification.permission === 'granted') {
       MUST = { ...MUST, notify: false }; toast('나갈 때 알림을 껐어요');
     } else if (!('Notification' in window) || !navigator.serviceWorker) {
-      toast('이 브라우저는 알림을 못 써요 · 아이폰·아이패드는 홈 화면에 추가한 앱에서만 돼요');
+      toast('이 브라우저는 알림을 못 써요 · 아이폰·아이패드는 홈 화면에 추가한 앱에서만 돼요', 'warn');
     } else {
       const p = await Notification.requestPermission();
       if (p === 'granted') { MUST = { ...MUST, notify: true, lastPing: 0 }; toast('앱을 나갈 때 남은 걸 알림으로 알려 줄게요 (30분에 한 번까지)'); }
-      else toast('알림 권한이 꺼져 있어요 · 설정에서 허용해 주세요');
+      else toast('알림 권한이 꺼져 있어요 · 설정에서 허용해 주세요', 'warn');
     }
   }
   saveMust(); renderMust(); renderDock(); restack();
+  after?.();
 }
 // 닫기 전에: 컴퓨터 브라우저(맥 사파리·크롬)는 '이 페이지를 나가시겠습니까' 확인 창이 뜬다(문구는 브라우저가 정함).
 // 아이폰·아이패드 사파리는 탭·앱을 닫을 때 막을 방법이 없어서, 화면을 떠나는 순간 알림을 보낸다(홈 화면 앱 + 알림 허용일 때).
@@ -876,15 +906,21 @@ setInterval(() => {
 
 // ---------- Toast ----------
 let tt;
-function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2400); }
+// kind 'warn' = 안 되는 동작(낮은 소리 + 고개 젓기). 그 밖에는 방금 다른 소리가 없을 때만 작은 방울 소리
+function toast(msg, kind) {
+  const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2400);
+  if (kind === 'warn') { FX.play('warn'); MO.shake(t); }
+  else { FX.soft('toast'); MO.bump(t, 0.35); }
+}
 
 // ---------- Actions ----------
 function selectBlock(id, hw) {
-  if (st.running) { toast('진행 중인 숙제를 종료한 뒤 블록을 바꿀 수 있어요'); return; }
+  if (st.running) { toast('진행 중인 숙제를 종료한 뒤 블록을 바꿀 수 있어요', 'warn'); return; }
   S.selBlock = id === R.decision.blockId && !hw ? null : id;
   if (hw) S.selHw[id] = hw;
   render();
   win('now').animate([{ boxShadow: '0 0 0 6px rgba(241,240,236,.35)' }, { boxShadow: '0 0 0 0 rgba(241,240,236,0)' }], { duration: 700, easing: 'ease-out' });
+  FX.play('select'); MO.wobble(win('now'), 0.8);
 }
 function toFree(msg) {
   if (S.mode === 'free') return;
@@ -901,28 +937,37 @@ document.addEventListener('click', (e) => {
   const act = a.dataset.act, w = a.closest('.win'), wid = w && w.dataset.id;
   if (/^pl(day|add|edit|check)$/.test(act) && PLAN && src && plAction(a)) return;
   switch (act) {
-    case 'mode': if (a.dataset.mode === 'free') toFree(); else { S.mode = 'organized'; applyLayout(); } break;
-    case 'reset': S.free = freeDefault(); S.collapsed = {}; S.closed = {}; S.split = { col: null, L: null, R: null, M: null }; S.stackH = {}; applyLayout(); toast('창 크기와 배치를 처음대로 돌렸어요'); break;
-    case 'collapse': if (S.focus === wid) S.focus = null; S.collapsed[wid] = !S.collapsed[wid]; applyLayout(); break;
-    case 'focus': S.focus = S.focus === wid ? null : wid; if (S.focus) front(wid); applyLayout(); break;
+    case 'sfx': paintSfx(FX.toggle()); break;
+    case 'mode': if (a.dataset.mode !== S.mode) FX.play('mode'); if (a.dataset.mode === 'free') toFree(); else { S.mode = 'organized'; applyLayout(); } break;
+    case 'reset': FX.play('mode'); S.free = freeDefault(); S.collapsed = {}; S.closed = {}; S.split = { col: null, L: null, R: null, M: null }; S.stackH = {}; applyLayout(); toast('창 크기와 배치를 처음대로 돌렸어요'); break;
+    case 'collapse': if (S.focus === wid) S.focus = null; S.collapsed[wid] = !S.collapsed[wid]; FX.play(S.collapsed[wid] ? 'collapse' : 'expand'); applyLayout(); MO.wobble(w, S.collapsed[wid] ? 1.4 : 0.8); break;
+    case 'focus': S.focus = S.focus === wid ? null : wid; FX.play(S.focus ? 'focus' : 'unfocus'); if (S.focus) front(wid); applyLayout(); break;
     case 'close':
       if (S.focus === wid) S.focus = null;
+      FX.play('close');
       S.closed[wid] = true; applyLayout();
       toast(`${NAMES[wid]} 창을 닫았어요 · 아래 독에서 다시 열 수 있어요`);
       break;
-    case 'unfocus': S.focus = null; applyLayout(); break;
-    case 'dock': { const id = a.dataset.id; S.closed[id] = false; S.collapsed[id] = false; front(id); applyLayout(); break; }
-    case 'sort': S.sort = a.dataset.sort; render(); break;
+    case 'unfocus': FX.play('unfocus'); S.focus = null; applyLayout(); break;
+    case 'dock': {
+      const id = a.dataset.id, shut = S.closed[id] || S.collapsed[id];
+      FX.play(shut ? 'open' : 'select');
+      S.closed[id] = false; S.collapsed[id] = false; front(id); applyLayout();
+      if (!shut) MO.wobble(win(id), 0.9);
+      break;
+    }
+    case 'sort': if (S.sort !== a.dataset.sort) FX.play('select'); S.sort = a.dataset.sort; render(); break;
     case 'mtog': case 'mdel': case 'mwarn': case 'mnotify': mustAction(act, a); break;
-    case 'trash': S.trash = !S.trash; renderDl(); flush(); restack(); break;
+    case 'trash': S.trash = !S.trash; FX.play('fold', S.trash); renderDl(); flush(); restack(); break;
     case 'group': {
       const g = a.dataset.id; S.open[g] = !S.open[g];
+      FX.play('fold', S.open[g]);
       a.closest('.grp').classList.toggle('open', S.open[g]); a.setAttribute('aria-expanded', String(S.open[g]));
       setTimeout(restack, 520);
       break;
     }
     case 'selblock': selectBlock(a.dataset.id); break;
-    case 'follow': S.selBlock = null; render(); break;
+    case 'follow': FX.play('select'); S.selBlock = null; render(); MO.wobble(win('now'), 0.6); break;
     case 'opentask': {
       if (canEdit() && !a.dataset.now) { openEv(a.dataset.id); break; }
       const b = blockOfTask(a.dataset.id), j = J(a.dataset.id);
@@ -932,17 +977,20 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'selhw': {
-      if (st.running) { toast('진행 중에는 숙제를 바꿀 수 없어요'); break; }
+      if (st.running) { toast('진행 중에는 숙제를 바꿀 수 없어요', 'warn'); break; }
       const v = nowView();
       if (v.kind === 'block') S.selHw[v.id] = a.dataset.id;
+      FX.play('select');
       renderNow(); renderPl(); flush(); restack();
+      MO.pop(document.querySelector(`#b-now .hw[data-id="${CSS.escape(a.dataset.id)}"] .radio`));
       break;
     }
-    case 'start': { const v = nowView(); startTask(v.id, S.curSel); break; }
-    case 'startgap': startTask(null, a.dataset.id); break;
+    case 'start': { const v = nowView(); FX.play('start'); startTask(v.id, S.curSel); MO.bump(document.querySelector('#b-now .run'), 0.4); break; }
+    case 'startgap': FX.play('start'); startTask(null, a.dataset.id); MO.bump(document.querySelector('#b-now .run'), 0.4); break;
     case 'stop': {
       const r = st.running, sec = Math.round((nowMs() - r.t0) / 1000);
       if (sec >= 30 || r.units > 0) st.sessions.push({ taskId: r.task, start: r.t0, sec, units: Math.max(0, r.units) });
+      FX.play('stop');
       st.running = null; save(); render();
       toast(sec >= 30 || r.units > 0 ? '기록했어요 · 페이스와 오늘 완료 시간에 반영됨' : '30초 미만이라 기록하지 않았어요');
       break;
@@ -950,15 +998,22 @@ document.addEventListener('click', (e) => {
     case 'plus': {
       const t = T(st.running.task);
       if (t.done < t.total) { t.done++; st.running.units++; S.pop = t.id; }
+      FX.play(t.done >= t.total ? 'complete' : 'plus', t.done / t.total);
       if (t.done >= t.total) toast(`‘${t.title}’ 완료!`);
       save(); render();
+      MO.bump(document.querySelector('#b-now .hw[aria-checked="true"] .hw-sub b'), t.done >= t.total ? 1.6 : 1);
       break;
     }
-    case 'minus': { const t = T(st.running.task); if (t.done > 0) { t.done--; st.running.units--; } save(); render(); break; }
+    case 'minus': {
+      const t = T(st.running.task); if (t.done > 0) { t.done--; st.running.units--; }
+      FX.play('minus'); save(); render();
+      MO.bump(document.querySelector('#b-now .hw[aria-checked="true"] .hw-sub b'), 0.6);
+      break;
+    }
   }
 });
 function flush() { requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll('[data-k]').forEach((el) => { el.style.width = el.dataset.p + '%'; prevW[el.dataset.k] = +el.dataset.p; }))); }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.focus) { S.focus = null; applyLayout(); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.focus) { FX.play('unfocus'); S.focus = null; applyLayout(); } });
 
 // hover link: deadline/NOW task ↔ planner block
 document.addEventListener('mouseover', (e) => {
@@ -988,14 +1043,19 @@ stage.addEventListener('pointerdown', (e) => {
       toFree(head ? '자유 모드로 전환했어요 · 창을 원하는 곳에 두세요' : null);
       r0 = { ...S.free[id] };
       w.classList.add(head ? 'dragging' : 'resizing');
+      FX.play('grab'); MO.grab(w);
     }
+    MO.dragTo(w, ev.clientX);
     const r = S.free[id];
     if (head) {
       r.x = clamp(r0.x + dx, -r.w + 120, W - 120); r.y = clamp(r0.y + dy, TOP - 10, H - HEAD);
       w.style.left = r.x + 'px'; w.style.top = r.y + 'px';
     }
   };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); w.classList.remove('dragging', 'resizing'); saveLayout(); };
+  const up = () => {
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); w.classList.remove('dragging', 'resizing'); saveLayout();
+    if (started) { FX.play('drop'); MO.drop(w); }
+  };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
 });
 // 창 크기 바꾸기: 자유 모드는 여덟 방향, 세로·폰 정돈 모드는 아래쪽(높이)만
@@ -1004,7 +1064,7 @@ function drag(e, onMove, onEnd) {
   e.preventDefault();
   const sx = e.clientX, sy = e.clientY;
   const move = (ev) => onMove((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, ev);
-  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); onEnd?.(); saveLayout(); };
+  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); onEnd?.(); saveLayout(); FX.play('snap'); };
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
 }
 function resizeWin(e, w, id, dir) {
@@ -1040,7 +1100,7 @@ stage.addEventListener('pointerdown', (e) => {
 });
 stage.addEventListener('dblclick', (e) => {
   const h = e.target.closest('.wh'); if (!h || e.target.closest('button')) return;
-  const id = h.closest('.win').dataset.id; S.focus = S.focus === id ? null : id; if (S.focus) front(id); applyLayout();
+  const id = h.closest('.win').dataset.id; S.focus = S.focus === id ? null : id; FX.play(S.focus ? 'focus' : 'unfocus'); if (S.focus) front(id); applyLayout();
 });
 
 // ---------- Fit to viewport ----------
@@ -1116,7 +1176,7 @@ async function refreshLive(manual) {
     liveInfo = { events: SHEET ? liveRaw.size : null, blocks: Object.values(PLAN.days).reduce((n, l) => n + l.length, 0), errors };
     rebuild();
     if (manual) toast(errors.length ? errors.join(' / ') : `실제 데이터로 바꿨어요 · 숙제 ${st.tasks.length}개 · 15577 블록 ${st.blocks.length}개`);
-    else if (errors.length && !SHEET) toast(errors.join(' / '));
+    else if (errors.length && !SHEET) toast(errors.join(' / '), 'warn');
   } finally { liveBusy = false; paintConn(); }
 }
 // 15577 온라인 저장 ID가 있으면 고친 뒤 1.5초 있다가 올린다 (15577과 같은 문서, updatedAt 최신 쪽이 이김)
@@ -1124,7 +1184,7 @@ let cloudT = null;
 function cloudQueue() {
   if (!src?.planId) return;
   clearTimeout(cloudT);
-  cloudT = setTimeout(() => PL.cloudPut(src.planId, PLAN).catch((e) => toast(e.message)), 1500);
+  cloudT = setTimeout(() => PL.cloudPut(src.planId, PLAN).catch((e) => toast(e.message, 'warn')), 1500);
 }
 function planChanged(msg) {
   PLAN.updatedAt = Date.now();
@@ -1138,6 +1198,7 @@ function openConn() {
   f.token.value = src?.token || '';
   f.planId.value = src?.planId || '';
   paintConn();
+  FX.play('sheet');
   dlg.showModal();
 }
 dlg.addEventListener('close', async () => {
@@ -1150,7 +1211,7 @@ dlg.addEventListener('close', async () => {
   }
   if (dlg.returnValue !== 'ok') return;
   const planId = f.planId.value.trim().toLowerCase();
-  if (planId && !ID_RE.test(planId)) { toast('15577 ID는 영어 소문자·숫자·-·_ 3~24자예요'); return; }
+  if (planId && !ID_RE.test(planId)) { toast('15577 ID는 영어 소문자·숫자·-·_ 3~24자예요', 'warn'); return; }
   src = { base: f.base.value.trim() || DEFAULT_BASE, token: f.token.value.trim(), planId };
   saveSrc(src); paintConn();
   await refreshLive(true);
@@ -1168,7 +1229,7 @@ function openEv(taskId) {
   const f = evDlg.querySelector('form');
   evId = taskId && taskId.startsWith('ev:') ? taskId.slice(3) : null;
   const e = evId ? liveRaw.get(evId) : null;
-  if (taskId && !e) { toast('일정 앱에서 온 숙제가 아니라 여기서 고칠 수 없어요'); return; }
+  if (taskId && !e) { toast('일정 앱에서 온 숙제가 아니라 여기서 고칠 수 없어요', 'warn'); return; }
   const today = logicalDay(settingsOf(st), nowMs()).date;
   document.getElementById('evH').textContent = e ? '마감 고치기' : '마감 추가';
   f.title.value = e?.title ?? '';
@@ -1181,6 +1242,7 @@ function openEv(taskId) {
   document.getElementById('evDel').hidden = !e;
   document.getElementById('evNow').hidden = !e;
   evDlg.dataset.task = taskId || '';
+  FX.play('sheet');
   evDlg.showModal();
 }
 evDlg.addEventListener('close', async () => {
@@ -1194,14 +1256,32 @@ evDlg.addEventListener('close', async () => {
       toast('지웠어요');
     } else {
       const body = { title: f.title.value.trim(), date: f.date.value, time: f.time.value || null, kind: f.kind.value, cat: f.cat.value, note: f.note.value.trim(), done: f.done.checked };
-      if (!body.title || !body.date) { toast('제목과 날짜를 넣어 주세요'); return; }
+      if (!body.title || !body.date) { toast('제목과 날짜를 넣어 주세요', 'warn'); return; }
       if (evId) await sendEvent(src, 'PATCH', evId, body);
       else await sendEvent(src, 'POST', null, { ...body, source: 'ws' });
       toast(evId ? '저장했어요 · 일정 앱에도 반영됨' : '추가했어요 · 일정 앱에도 반영됨');
     }
     await refreshLive(false);
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(err.message, 'warn'); }
 });
+// 대화상자 닫기 소리: 저장·연결 = 위로 톡톡, 삭제 = 삭, 그 밖 = 닫힘
+for (const d of [plDlg, dlg, evDlg]) d.addEventListener('close', () => {
+  const v = d.returnValue;
+  FX.play(v === 'save' || v === 'ok' ? 'save' : v === 'del' ? 'del' : v === 'off' ? 'close' : 'sheetClose');
+});
+// 따로 소리를 정하지 않은 버튼은 작은 딸깍
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('button, [data-act], .seg3 label, .chips label, label.mu-daily')) return;
+  const t0 = performance.now();
+  setTimeout(() => { if (!FX.playedSince(t0)) FX.play('tap'); }, 40);
+}, true);
+function paintSfx(on) {
+  const b = document.getElementById('sfxBtn');
+  b.setAttribute('aria-pressed', String(on));
+  b.setAttribute('aria-label', on ? '효과음 끄기' : '효과음 켜기');
+  b.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="none"/>${on ? '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>' : '<path d="M16 9l6 6M22 9l-6 6"/>'}</svg><span>${on ? '소리' : '무음'}</span>`;
+}
+paintSfx(FX.isOn());
 paintConn();
 refreshLive(false);
 setInterval(() => refreshLive(false), 5 * 60_000);
