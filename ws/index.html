@@ -653,32 +653,6 @@
   <div class="scrim" id="scrim" data-act="unfocus"></div>
   <nav class="dock" id="dock" aria-label="창 목록"></nav>
   <div class="toast" id="toast" role="status"></div>
-  <dialog id="plDlg" class="conn-dlg" aria-labelledby="plH">
-    <form method="dialog">
-      <h2 id="plH">블록 추가</h2>
-      <div class="seg3" role="radiogroup" aria-label="종류">
-        <label><input type="radio" name="kind" value="solve" checked><span>문풀</span></label>
-        <label><input type="radio" name="kind" value="review"><span>정리</span></label>
-        <label><input type="radio" name="kind" value="lecture"><span>인강</span></label>
-      </div>
-      <label>제목<input name="title" autocomplete="off" placeholder="예: 수평잡기 함수 (비우면 과목 이름)"></label>
-      <div class="lbl">과목</div>
-      <div class="chips" id="plCats" role="radiogroup" aria-label="과목"></div>
-      <div class="ev-2" id="plAmt">
-        <label>분량<input name="units" type="number" min="0" inputmode="numeric" placeholder="예: 26"></label>
-        <label>단위<input name="unit" autocomplete="off"></label>
-      </div>
-      <div class="ev-2">
-        <label>예상 시간 (분)<input name="est" type="number" min="5" step="5" inputmode="numeric"></label>
-        <label>시작<input name="start" type="time" step="300"></label>
-      </div>
-      <p class="conn-note" id="plHint"></p>
-      <label class="ev-done"><input name="done" type="checkbox"> 완료</label>
-      <label id="plActW">실제 걸린 시간 (분)<input name="actual" type="number" min="1" inputmode="numeric"></label>
-      <p class="conn-note">수업·학원과 겹치면 15577처럼 그 뒤로 밀려요.</p>
-      <div class="conn-row"><button value="del" class="conn-off" id="plDel">삭제</button><button value="now" class="conn-off" id="plNow">NOW에 표시</button><span></span><button value="cancel" formnovalidate>닫기</button><button value="save" class="conn-ok">저장</button></div>
-    </form>
-  </dialog>
   <dialog id="evDlg" class="conn-dlg" aria-labelledby="evH">
     <form method="dialog">
       <h2 id="evH">마감 고치기</h2>
