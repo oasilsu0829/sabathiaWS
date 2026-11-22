@@ -28,6 +28,8 @@ npm test             # 판단 엔진 테스트 (Node 20+)
 1. 기본 브랜치(`claude/sabathia-decision-engine-ltf1l1`)에 머지 → `.github/workflows/pages.yml`이 GitHub Pages로 배포 (처음 한 번 Settings → Pages → Source: **GitHub Actions**)
 2. iPhone Safari에서 열고 공유 → **홈 화면에 추가**
 
+Cloudflare(`ws.oasilsu0829.workers.dev`)는 저장소 루트를 정적 파일로 올리고, `_redirects`가 첫 화면 `/`를 WS(`/ws/`)로 보낸다. GitHub Pages는 `_redirects`를 쓰지 않아 첫 화면이 예전 판단 앱 그대로다.
+
 ## 사용 흐름
 
 1. **일정** 탭: 요일별 기상·취침, 학교·학원·이동·식사 같은 고정 일정 입력 (한 번만)
