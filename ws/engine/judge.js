@@ -131,14 +131,16 @@ export function core(state, nowMs) {
   const blocks = (state.blocks ?? [])
     .map((b) => ({ ...b, ...blockRange(b) }))
     .sort((a, b) => a.start - b.start);
-  const future = blocks.filter((b) => b.end > nowMs).map((b) => ({ ...b, from: Math.max(b.start, nowMs) }));
+  const future = blocks.filter((b) => b.end > nowMs && !b.doneIn15577 &&
+    !(b.tasks?.length && b.tasks.every((id) => byId.has(id) && isDone(byId.get(id))))).map((b) => ({ ...b, from: Math.max(b.start, nowMs) }));
   const openIn = (b) => (b.tasks ?? []).map((id) => byId.get(id)).filter((t) => t && !isDone(t));
 
   // 아직 아무 블록도 잡히지 않은 빈 시간 (수면·고정 일정 제외)
-  const unplanned = subtract(
+  const gaps = subtract(
     days.flatMap((d) => d.free),
     future.map((b) => ({ start: b.from, end: b.end })),
-  ).filter((w) => w.end - w.start >= settings.minSlotMin * MIN);
+  );
+  const unplanned = gaps.filter((w) => w.end - w.start >= settings.minSlotMin * MIN);
 
   // 1) 추정 — 페이스가 없으면 블록 시간을 숙제 수로 나눈 몫을 믿는다
   const share = new Map();
@@ -283,8 +285,9 @@ export function core(state, nowMs) {
 
   // 오늘 요약
   const todayBlocks = blocks.filter((b) => b.start < todayEnd && b.end > todayStart);
-  const plannedRem = future.filter((b) => b.from < todayEnd).reduce((s, b) => s + (Math.min(b.end, todayEnd) - b.from) / MIN, 0);
   const avail = sleeping ? 0 : todayInfo.freeMin;
+  const unalloc = sleeping ? 0 : sumMin(gaps, nowMs, todayEnd);
+  const plannedRem = Math.max(0, avail - unalloc);
   const completed = (state.sessions ?? [])
     .filter((x) => x.start >= todayStart && x.start < todayEnd)
     .reduce((s, x) => s + (x.sec || 0) / 60, 0);
@@ -316,7 +319,8 @@ export function core(state, nowMs) {
       avail,
       planTotal: todayBlocks.reduce((s, b) => s + (b.end - b.start) / MIN, 0),
       plannedRem,
-      unalloc: Math.max(0, avail - plannedRem),
+      unalloc,
+      remain: Math.max(0, unalloc - mustExtra),
       completed,
       mustExtra,
     },
