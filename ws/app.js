@@ -1,7 +1,6 @@
 import { mountCity } from './city.js';
 import { loadSrc, saveSrc, loadEvents, combine, applyLive, sendEvent, DEFAULT_BASE, ID_RE } from './live.js';
 import * as PL from './planner.js';
-import * as MU from './must.js';
 // Sabathia WS — 화면. 판단은 전부 engine/judge.js가 하고, 여기서는 그 결과를 그린다.
 import { judge, ddayTxt, estTxt, settingsOf } from './engine/judge.js';
 import { isDone } from './engine/estimate.js';
@@ -76,7 +75,6 @@ save();
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const dur = (m) => fmtDur(Math.max(0, Math.round(m)));
-const hmShort = (m) => `${Math.floor(m / 60)}:${String(Math.round(m) % 60).padStart(2, '0')}`;
 const r5 = (v) => Math.max(5, roundTo(v, 5));
 const T = (id) => st.tasks.find((t) => t.id === id);
 const G = (id) => st.groups.find((g) => g.id === id);
@@ -109,21 +107,21 @@ function measure() {
   W = Math.round(vw / scale); VH = Math.round(vh / scale); H = VH;
 }
 measure();
-const ids = ['now', 'must', 'today', 'dl', 'pl'];
-const NAMES = { now: 'NOW', must: '안하면 병신', today: 'TODAY', dl: 'DEADLINES', pl: 'PLANNER' };
+const ids = ['now', 'today', 'dl', 'pl'];
+const NAMES = { now: 'NOW', today: 'TODAY', dl: 'DEADLINES', pl: 'PLANNER' };
 const freeDefault = () => {
   if (FORM !== 'wide') {
     const w = Math.min(W - PAD * 2 - 42, 640), h = Math.max(320, Math.min(560, VH - TOP - 200));
     return Object.fromEntries(ids.map((id, i) => [id, { x: PAD + i * 14, y: TOP + 12 + i * 46, w, h }]));
   }
   const sx = W / 1366, sy = H / 1024, r = (x, y, w, h) => ({ x: Math.round(x * sx), y: Math.round(y * sy), w: Math.round(w * sx), h: Math.round(h * sy) });
-  return { now: r(48, 96, 560, 540), must: r(470, 250, 440, 400), today: r(640, 88, 680, 268), dl: r(690, 384, 640, 540), pl: r(132, 580, 520, 360) };
+  return { now: r(48, 96, 560, 540), today: r(640, 88, 680, 268), dl: r(690, 384, 640, 540), pl: r(132, 580, 520, 360) };
 };
 const S = {
-  mode: 'organized', focus: null, collapsed: {}, closed: Object.fromEntries(ids.map((id) => [id, true])), order: ['pl', 'dl', 'today', 'must', 'now'],
+  mode: 'organized', focus: null, collapsed: {}, closed: Object.fromEntries(ids.map((id) => [id, true])), order: ['pl', 'dl', 'today', 'now'],
   free: freeDefault(), selBlock: null, selHw: {}, sort: 'group',
   open: Object.fromEntries(st.groups.map((g, i) => [g.id, i < 3])), pop: null,
-  split: { col: null, L: null, R: null, M: null }, // 정돈 모드 비율 (경계를 끌어 바꿈)
+  split: { col: null, L: null, R: null }, // 정돈 모드 비율 (경계를 끌어 바꿈)
   stackH: {},                              // 세로·폰: 창마다 높이
 };
 // 창 크기·배치는 이 기기에 남긴다 (2026-11-19 사용자 요청: 창 크기 조절)
@@ -147,7 +145,7 @@ function natural(id) {
 }
 const restack = () => { if (FORM !== 'wide' && S.mode === 'organized' && !S.focus) applyLayout(); };
 // 폰·세로 화면: 열린 창을 한 줄로 쌓는다. 화면보다 짧으면 남는 높이를 나눠 채운다.
-const STACK = { now: 640, must: 420, today: 330, dl: 560, pl: 620 };
+const STACK = { now: 640, today: 330, dl: 560, pl: 620 };
 function stackRects() {
   const open = ids.filter((id) => !S.closed[id]);
   const avail = VH - TOP - PAD - (anyClosed() ? 64 : 0);
@@ -163,22 +161,17 @@ function stackRects() {
 function orgRects() {
   if (FORM !== 'wide') return stackRects();
   const avail = H - TOP - PAD - (anyClosed() ? 64 : 0);
-  const L = ['now', 'pl'].filter((id) => !S.closed[id]), Rr = ['must', 'today', 'dl'].filter((id) => !S.closed[id]);
+  const L = ['now', 'pl'].filter((id) => !S.closed[id]), Rr = ['today', 'dl'].filter((id) => !S.closed[id]);
   const full = W - PAD * 2;
   let lw = Math.round(S.split.col ? clamp(full * S.split.col, 340, full - 340 - GAP) : clamp(full * 0.443, 480, 820)), rx = PAD + lw + GAP, rw = full - lw - GAP;
   if (!L.length) { rx = PAD; rw = full; }
   if (!Rr.length) lw = full;
   const lim = (r, av) => clamp(Math.round(av * r), HEAD + 120, av - GAP - HEAD - 120);
   const ratio = { now: S.split.L ?? 0.7, today: S.split.R ?? 0.343 };
-  // 오른쪽 맨 위 '안하면 병신'은 높이 비율 S.split.M, 그 아래 TODAY·DEADLINES가 남은 높이를 나눈다
   const col = (list, x, w) => {
     if (!list.length) return {};
     const out = {};
     let y = TOP, av = avail;
-    if (list[0] === 'must' && list.length > 1) {
-      const h = S.collapsed.must ? HEAD : clamp(Math.round(avail * (S.split.M ?? 0.3)), HEAD + 100, avail - (GAP + HEAD) * (list.length - 1) - 100);
-      out.must = { x, y, w, h }; y += h + GAP; av -= h + GAP; list = list.slice(1);
-    }
     if (list.length === 1) { const a = list[0]; out[a] = { x, y, w, h: S.collapsed[a] ? HEAD : av }; return out; }
     const [a, b] = list, ca = S.collapsed[a], cb = S.collapsed[b];
     const ha = ca ? HEAD : cb ? av - GAP - HEAD : lim(ratio[a], av);
@@ -259,10 +252,9 @@ function placeSplits(org) {
     Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
     stage.append(el);
   };
-  const l = org.now ?? org.pl, r = org.must ?? org.today ?? org.dl;
+  const l = org.now ?? org.pl, r = org.today ?? org.dl;
   if (l && r) { const bot = Math.max(...ids.filter((id) => org[id]).map((id) => org[id].y + org[id].h)); add('v', { s: 'col' }, { x: l.x + l.w - 4, y: TOP, w: GAP + 8, h: bot - TOP }); }
-  const underM = org.today ? 'today' : 'dl';
-  for (const [a, b, key] of [['now', 'pl', 'L'], ['must', underM, 'M'], ['today', 'dl', 'R']]) {
+  for (const [a, b, key] of [['now', 'pl', 'L'], ['today', 'dl', 'R']]) {
     if (org[a] && org[b] && !S.collapsed[a] && !S.collapsed[b]) add('h', { s: key }, { x: org[a].x, y: org[a].y + org[a].h - 4, w: org[a].w, h: GAP + 8 });
   }
 }
@@ -429,72 +421,16 @@ function renderNow() {
 }
 
 // ---------- TODAY ----------
-function tile(segs, key, past) {
-  const qs = [25, 50, 75].map((p) => `<span class="q${past ? '' : ' dk'}" style="left:${p}%"></span>`).join('');
-  return `<div class="tile${past ? ' past' : ''}">${segs.map((s, i) => `<span class="s ${s.t}" data-k="${key}-${i}" data-p="${s.w}" style="left:${s.l}%;width:${prevW[key + '-' + i] ?? 0}%"></span>`).join('')}${qs}</div>`;
-}
 function renderToday() {
   const d = R.todaySum;
-  const live = st.running ? (nowMs() - st.running.t0) / MINMS : 0;
-  const completed = d.completed + live;
-  const must = d.mustExtra >= 5 ? Math.min(d.mustExtra, d.unalloc) : 0;
-  let html = '';
-  const pastN = Math.max(1, Math.ceil(completed / 60));
-  for (let i = 0; i < pastN; i++) {
-    const w = (clamp(completed - i * 60, 0, 60) / 60) * 100;
-    html += `<div class="tile-wrap" style="flex:.8">${tile([{ t: 'done', l: 0, w }], 'tp' + i, true)}<span class="tile-lbl">${i === 0 ? 'DONE' : ''}</span></div>`;
-  }
-  html += `<span class="now-mark" aria-hidden="true"><span class="num">${fmtTime(R.now)}</span></span>`;
-  const nT = Math.max(1, Math.ceil(d.avail / 60));
-  const marks = [['plan', d.plannedRem], ['must', must], ['free', Math.max(0, d.avail - d.plannedRem - must)]];
-  for (let i = 0; i < nT; i++) {
-    const a = i * 60, segs = [];
-    let acc = 0;
-    for (const [t, m] of marks) {
-      const s0 = clamp(acc - a, 0, 60), s1 = clamp(acc + m - a, 0, 60);
-      if (s1 > s0) segs.push({ t, l: (s0 / 60) * 100, w: ((s1 - s0) / 60) * 100 });
-      acc += m;
-    }
-    const rest = d.avail - a;
-    html += `<div class="tile-wrap">${tile(segs, 'tf' + i, false)}<span class="tile-lbl">${rest >= 60 ? `+${i + 1}H` : `+${Math.round(rest)}M`}</span></div>`;
-  }
-  // 시간대별 흐름
-  const firstB = R.todayBlocks[0];
-  const s0 = Math.floor(Math.min(firstB ? firstB.start : R.now, R.now) / 3_600_000) * 3_600_000;
-  const s1 = Math.max(R.todayEnd, s0 + 3_600_000), span = s1 - s0;
-  const pos = (ms) => clamp(((ms - s0) / span) * 100, 0, 100);
-  const fixedBars = R.todayInfo.busy.filter((f) => f.end > s0 && f.start < s1)
-    .map((f) => `<i style="left:${pos(f.start)}%;width:${pos(f.end) - pos(f.start)}%;background:rgba(241,240,236,.1)" title="${esc(f.label)}"></i>`).join('');
-  const bars = R.todayBlocks.map((b) => `<i style="left:${pos(b.start)}%;width:${pos(b.end) - pos(b.start)}%;background:${blockState(b) === 'done' ? 'var(--ink)' : 'var(--plan)'}" title="${esc(b.title)}"></i>`).join('');
-  const ticks = [];
-  for (let t = s0; t < s1; t += 3_600_000) ticks.push(t);
-  ticks.push(s1);
-  const ax = ticks.map((t) => `<span style="left:${pos(t)}%">${fmtTime(t)}</span>`).join('');
-  const risky = [...R.tasks.values()].filter((j) => j.urgency === 'risk');
-  const mustT = [...R.tasks.values()].filter((j) => j.mustToday >= 5).sort((a, b) => b.mustToday - a.mustToday);
-  const line = risky.length
-    ? { warn: true, txt: `마감 전 끝내기 어려운 숙제 ${risky.length}개 · ${T(risky[0].id).title}` }
-    : mustT.length
-      ? { warn: true, txt: `계획 밖으로 오늘 약 ${dur(r5(d.mustExtra))} 더 필요 · ‘${T(mustT[0].id).title}’${mustT.length > 1 ? ` 외 ${mustT.length - 1}개` : ''}` }
-      : R.mode === 'tight'
-        ? { warn: false, txt: '오래 걸리면 빠듯한 숙제가 있어요 · 마감순 탭에서 확인' }
-        : { warn: false, txt: '오늘 계획대로면 마감 위험 없음' };
+  const label = `다른 공부에 쓸 시간 · 약 ${dur(Math.floor(d.remain))}`;
+  document.getElementById('briefRemain').textContent = label;
   document.getElementById('b-today').innerHTML = `
-    <div class="td-head"><span class="td-big num">${hmShort(d.avail)}</span><span class="td-cap"><b>H:MM AVAILABLE</b>남은 가용 시간 · 취침 ${fmtTime(R.todayEnd)}까지</span><span class="td-key"><i></i>1 Block = 1H</span></div>
-    <div class="tiles">${html}</div>
-    <div class="legend">
-      <span class="done"><i></i>완료 <b class="num">${dur(completed)}</b></span>
-      <span class="plan"><i></i>계획 남음 <b class="num">${dur(d.plannedRem)}</b><span class="of">/ 오늘 ${dur(d.planTotal)}</span></span>
-      ${must ? `<span class="must"><i></i>계획 밖 필요 <b class="num">${dur(r5(d.mustExtra))}</b></span>` : ''}
-      <span class="free"><i></i>미배정 <b class="num">${dur(d.unalloc - must)}</b></span>
-    </div>
-    <div class="td-judge${line.warn ? ' warn' : ''}"><i></i>${esc(line.txt)}</div>
-    <div class="strip"><div class="sec-label" style="margin-top:0"><span class="kr">시간대별 흐름</span><span>${fmtTime(s0)} — ${fmtTime(s1)}</span></div>
-      <div class="strip-bar">${fixedBars}${bars}<span style="position:absolute;top:0;bottom:0;left:${pos(R.now)}%;width:2px;background:var(--ink2)"></span></div>
-      <div class="strip-ax">${ax}</div></div>`;
+    <div class="td-head"><span class="td-big num">${dur(Math.floor(d.remain))}</span>
+      <span class="td-cap">다른 공부에 쓸 예상 시간<br>취침 ${fmtTime(R.todayEnd)}까지</span></div>
+    <progress class="remain-bar" aria-label="남은 가용 시간 중 다른 공부에 쓸 시간" max="${d.avail || 1}" value="${d.remain}"></progress>
+    <div class="legend"><span>남은 가용 시간 ${dur(d.avail)}</span><span>예정된 공부 ${dur(d.plannedRem)}</span><span>추가로 필요한 숙제 약 ${dur(d.mustExtra)}</span></div>`;
 }
-
-// ---------- DEADLINES ----------
 function dlRow(t, tag) {
   const j = J(t.id), lv = j.urgency, e = estView(t), [dbg, dfg] = DUE[lv], c = isDone(t);
   const note = j.note && !c ? `<div class="dl-note ${j.noteLevel === 'risk' ? 'risk' : 'watch'}"><i></i>${esc(j.note)}</div>` : '';
@@ -748,96 +684,16 @@ function plAction(a) {
   return false;
 }
 
-// ---------- 안하면 병신 (오늘 꼭 할 일, must.js) ----------
-// 날짜는 판단과 같은 '논리적 하루'(취침 전까지 오늘). 닫을 때 남은 게 있으면 확인 창, 나갈 때 알림(켰을 때)
-let MUST = (() => { try { return MU.normalize(JSON.parse(localStorage.getItem(MU.MUST_KEY))); } catch { return MU.normalize(null); } })();
-const mustDay = () => logicalDay(settingsOf(st), nowMs()).date;
-function saveMust() { try { localStorage.setItem(MU.MUST_KEY, JSON.stringify(MUST)); } catch {} }
-function mustLeft() { return MU.left(MUST, mustDay()).length; }
-function renderMust() {
-  const day = mustDay();
-  const rolled = MU.rollover(MUST, day);
-  if (JSON.stringify(rolled) !== JSON.stringify(MUST)) { MUST = rolled; saveMust(); }
-  const n = MUST.items.length, l = mustLeft();
-  document.getElementById('mustSub').textContent = n ? (l ? `${l}개 남음` : '오늘 끝') : '오늘 꼭';
-  win('must').classList.toggle('must-left', l > 0);
-  const top = `<div class="mu-top${l ? ' hot' : ''}"><span class="big num">${n ? l : '—'}</span><span class="cap"><b>${!n ? 'EMPTY' : l ? 'LEFT' : 'CLEAR'}</b>${!n ? '꼭 할 것을 아래에 적어 두세요' : l ? `${n}개 중 ${l}개 남음 · 안 하면 병신` : '오늘 할 건 다 했음'}</span></div>`;
-  const rows = MUST.items.map((x) => {
-    const on = MU.isDoneOn(MUST, x.id, day);
-    return `<li class="mu-row${on ? ' done' : ''}">
-      <button class="mu-chk" data-act="mtog" data-id="${esc(x.id)}" aria-pressed="${on}"><span class="mu-box">${on ? ic('check', 14) : ''}</span><span class="mu-t">${esc(x.t)}</span>${x.daily ? '' : '<span class="mu-once">한 번</span>'}</button>
-      <button class="wbtn mu-del" data-act="mdel" data-id="${esc(x.id)}" aria-label="${esc(x.t)} 지우기">${ic('close', 14)}</button></li>`;
-  }).join('');
-  document.getElementById('mustList').innerHTML = top + (n ? `<ul class="mu-list">${rows}</ul>` : '');
-  const notifyOk = 'Notification' in window;
-  document.getElementById('mustOpts').innerHTML = `
-    <button data-act="mwarn" aria-pressed="${MUST.warn}">닫을 때 확인 ${MUST.warn ? '켬' : '끔'}</button>
-    <button data-act="mnotify" aria-pressed="${MUST.notify && notifyOk && Notification.permission === 'granted'}">나갈 때 알림 ${MUST.notify && notifyOk && Notification.permission === 'granted' ? '켬' : '끔'}</button>`;
-}
-document.getElementById('mustAdd').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const f = e.target, t = f.t.value.trim();
-  if (!t) return;
-  MUST = MU.add(MUST, t, f.daily.checked);
-  saveMust(); f.t.value = '';
-  renderMust(); renderDock(); restack();
-});
-async function mustAction(act, a) {
-  const day = mustDay();
-  if (act === 'mtog') {
-    MUST = MU.toggle(MUST, a.dataset.id, day);
-    if (!mustLeft() && MUST.items.length) toast('오늘 꼭 할 건 다 했어요');
-  } else if (act === 'mdel') {
-    const x = MUST.items.find((i) => i.id === a.dataset.id);
-    if (x && !confirm(`‘${x.t}’을(를) 목록에서 지울까요?`)) return;
-    MUST = MU.remove(MUST, a.dataset.id);
-  } else if (act === 'mwarn') {
-    MUST = { ...MUST, warn: !MUST.warn };
-    toast(MUST.warn ? '남은 게 있으면 창을 닫기 전에 한 번 묻습니다 (컴퓨터 브라우저)' : '닫을 때 확인을 껐어요');
-  } else if (act === 'mnotify') {
-    if (MUST.notify && 'Notification' in window && Notification.permission === 'granted') {
-      MUST = { ...MUST, notify: false }; toast('나갈 때 알림을 껐어요');
-    } else if (!('Notification' in window) || !navigator.serviceWorker) {
-      toast('이 브라우저는 알림을 못 써요 · 아이폰·아이패드는 홈 화면에 추가한 앱에서만 돼요');
-    } else {
-      const p = await Notification.requestPermission();
-      if (p === 'granted') { MUST = { ...MUST, notify: true, lastPing: 0 }; toast('앱을 나갈 때 남은 걸 알림으로 알려 줄게요 (30분에 한 번까지)'); }
-      else toast('알림 권한이 꺼져 있어요 · 설정에서 허용해 주세요');
-    }
-  }
-  saveMust(); renderMust(); renderDock(); restack();
-}
-// 닫기 전에: 컴퓨터 브라우저(맥 사파리·크롬)는 '이 페이지를 나가시겠습니까' 확인 창이 뜬다(문구는 브라우저가 정함).
-// 아이폰·아이패드 사파리는 탭·앱을 닫을 때 막을 방법이 없어서, 화면을 떠나는 순간 알림을 보낸다(홈 화면 앱 + 알림 허용일 때).
-addEventListener('beforeunload', (e) => {
-  if (!MUST.warn || !mustLeft()) return;
-  e.preventDefault();
-  e.returnValue = '';
-});
-let swReg = null;
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('./notify-sw.js').then((r) => { swReg = r; }).catch(() => {});
+  navigator.serviceWorker.register('./notify-sw.js').catch(() => {});
 }
-function pingLeave() {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const now = Date.now();
-  if (!MU.shouldPing(MUST, now)) return;
-  const tx = MU.leaveText(MUST, mustDay());
-  if (!tx) return;
-  MUST = { ...MUST, lastPing: now }; saveMust();
-  const opt = { body: tx.body, tag: 'sabathia-must', renotify: true, data: { url: location.href.split('#')[0] } };
-  try { if (swReg) swReg.showNotification(tx.title, opt); else new Notification(tx.title, opt); } catch {}
-}
-document.addEventListener('visibilitychange', () => { if (document.hidden) pingLeave(); });
-addEventListener('pagehide', pingLeave);
 
 // ---------- Dock ----------
 function renderDock() {
   document.getElementById('dock').innerHTML = Object.keys(NAMES).map((id) => {
     const off = !!S.closed[id];
     const minimized = S.collapsed[id] && !off;
-    const n = id === 'must' ? mustLeft() : 0;
-    return `<button data-act="dock" data-id="${id}" class="${minimized ? 'min' : ''}${n ? ' must-on' : ''}" aria-label="${NAMES[id]}${n ? ` ${n}개 남음` : ''} ${off ? '창 다시 열기' : '창 앞으로'}">${NAMES[id]}${n ? `<b class="num">${n}</b>` : ''}</button>`;
+    return `<button data-act="dock" data-id="${id}" class="${minimized ? 'min' : ''}" aria-label="${NAMES[id]} ${off ? '창 다시 열기' : '창 앞으로'}">${NAMES[id]}</button>`;
   }).join('');
 }
 
@@ -852,7 +708,7 @@ function renderHeader() {
 }
 function render() {
   R = judge(st, nowMs());
-  renderHeader(); renderNow(); renderMust(); renderToday(); renderDl(); renderPl(); renderDock();
+  renderHeader(); renderNow(); renderToday(); renderDl(); renderPl(); renderDock();
   restack();
   flush();
   S.pop = null;
@@ -902,7 +758,7 @@ document.addEventListener('click', (e) => {
   if (/^pl(day|add|edit|check)$/.test(act) && PLAN && src && plAction(a)) return;
   switch (act) {
     case 'mode': if (a.dataset.mode === 'free') toFree(); else { S.mode = 'organized'; applyLayout(); } break;
-    case 'reset': S.free = freeDefault(); S.collapsed = {}; S.closed = {}; S.split = { col: null, L: null, R: null, M: null }; S.stackH = {}; applyLayout(); toast('창 크기와 배치를 처음대로 돌렸어요'); break;
+    case 'reset': S.free = freeDefault(); S.collapsed = {}; S.closed = {}; S.split = { col: null, L: null, R: null }; S.stackH = {}; applyLayout(); toast('창 크기와 배치를 처음대로 돌렸어요'); break;
     case 'collapse': if (S.focus === wid) S.focus = null; S.collapsed[wid] = !S.collapsed[wid]; applyLayout(); break;
     case 'focus': S.focus = S.focus === wid ? null : wid; if (S.focus) front(wid); applyLayout(); break;
     case 'close':
@@ -913,7 +769,6 @@ document.addEventListener('click', (e) => {
     case 'unfocus': S.focus = null; applyLayout(); break;
     case 'dock': { const id = a.dataset.id; S.closed[id] = false; S.collapsed[id] = false; front(id); applyLayout(); break; }
     case 'sort': S.sort = a.dataset.sort; render(); break;
-    case 'mtog': case 'mdel': case 'mwarn': case 'mnotify': mustAction(act, a); break;
     case 'trash': S.trash = !S.trash; renderDl(); flush(); restack(); break;
     case 'group': {
       const g = a.dataset.id; S.open[g] = !S.open[g];
@@ -1029,12 +884,12 @@ function resizeWin(e, w, id, dir) {
 stage.addEventListener('pointerdown', (e) => {
   const sp = e.target.closest('.split'); if (!sp) return;
   const key = sp.dataset.s, org = orgRects(), full = W - PAD * 2, avail = H - TOP - PAD - (anyClosed() ? 64 : 0);
-  const l = org.now ?? org.pl, top = key === 'L' ? org.now : key === 'M' ? org.must : org.today;
-  const av = key === 'R' && org.must ? avail - org.must.h - GAP : avail;
+  const l = org.now ?? org.pl, top = key === 'L' ? org.now : org.today;
+
   sp.classList.add('on');
   drag(e, (dx, dy) => {
     if (key === 'col') S.split.col = clamp((l.w + dx) / full, 0.25, 0.75);
-    else S.split[key] = clamp((top.h + dy) / av, 0.15, 0.85);
+    else S.split[key] = clamp((top.h + dy) / avail, 0.15, 0.85);
     applyLayout(); restack?.();
   }, () => stage.querySelector('.split.on')?.classList.remove('on'));
 });

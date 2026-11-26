@@ -1,4 +1,4 @@
-// WS 서비스 워커(scope ws/): 설치·오프라인용 캐시와 '안하면 병신' 나갈 때 알림.
+// WS 서비스 워커: 설치 및 오프라인 캐시.
 // 네트워크 먼저(새 버전이 바로 보이게), 오프라인일 때만 캐시. 다른 주소(일정 API·Firestore·글꼴)는 건드리지 않는다.
 const CACHE = 'sabathia-ws-1';
 const SHELL = ['./', './manifest.webmanifest', './boot.js', './boot.mp3', './bg.webp'];
@@ -25,15 +25,5 @@ self.addEventListener('fetch', (e) => {
         })
         .catch(async () => (await c.match(nav ? './' : req, { ignoreSearch: nav })) ?? Response.error()),
     ),
-  );
-});
-self.addEventListener('notificationclick', (e) => {
-  e.notification.close();
-  const url = e.notification.data?.url || self.registration.scope;
-  e.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      const w = list.find((c) => c.url.startsWith(self.registration.scope));
-      return w ? w.focus() : self.clients.openWindow(url);
-    }),
   );
 });
