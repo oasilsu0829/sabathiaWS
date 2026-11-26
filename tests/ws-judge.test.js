@@ -196,3 +196,14 @@ test('범위 표현', () => {
   assert.equal(lossTxt(40, 55, 70), '약 40분~1시간 10분');
   assert.equal(lossTxt(60, 80, 100), '약 1시간~1시간 40분');
 });
+
+test('숙제를 일찍 끝내면 남은 블록 시간이 다른 공부 시간으로 돌아온다', () => {
+  const st = mk({
+    tasks: [{ total: 5, pace: 3 }],
+    blocks: [{ id: 'b', date: D0, start: '21:00', end: '22:00', tasks: ['t0'] }],
+  });
+  const now = at(D0, '21:30');
+  assert.equal(judge(st, now).todaySum.remain, 80);
+  st.tasks[0].done = 5;
+  assert.equal(judge(st, now).todaySum.remain, 110);
+});
